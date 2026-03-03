@@ -1627,8 +1627,13 @@ class _ManageModelsScreenState extends State<ManageModelsScreen>
                   const SizedBox(height: 10),
                   DropdownButtonFormField<LlamaLogLevel>(
                     initialValue: provider.nativeLogLevel,
-                    decoration: const InputDecoration(
-                      labelText: 'Native log level',
+                    decoration: InputDecoration(
+                      labelText: kIsWeb
+                          ? 'Bridge/runtime log level'
+                          : 'Native log level',
+                      helperText: kIsWeb
+                          ? 'Applies to bridge/core logs. For startup diagnostics set window.__llamadartBridgeBootstrapVerbose = true; for pthread warnings align window.__llamadartBridgeThreadPoolSize.'
+                          : null,
                     ),
                     items: LlamaLogLevel.values
                         .map(

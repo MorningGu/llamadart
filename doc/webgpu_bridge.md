@@ -158,9 +158,21 @@ window.LlamaWebGpuBridge = class LlamaWebGpuBridge {
 
 ## Performance Tuning Knobs
 
-- `window.__llamadartBridgeEnableMem64` (default effectively on in chat app)
-  - Set to `false` to force wasm32 preference.
+- `window.__llamadartBridgeEnableMem64` (default effectively off in chat app)
+  - Set to `true` to prefer wasm64 core when available.
 - `window.__llamadartBridgeAllowAutoRemoteFetchBackend`
   - Default `true`.
   - Set to `false` to skip the auto fetch-backed pre-attempt and go straight to
     streamed network staging.
+- `window.__llamadartBridgeRemoteFetchChunkBytes`
+  - Optional positive integer bytes.
+  - Defaults to `4 * 1024 * 1024` in `llamadart` web backend; clamped to
+    `4KiB..16MiB`.
+  - Applies to fetch-backed model loading path.
+- `window.__llamadartBridgeThreadPoolSize`
+  - Optional positive integer thread count hint.
+  - Used by bridge/runtime thread capping to avoid pthread pool exhaustion.
+  - Set this to match your bridge build `PTHREAD_POOL_SIZE` when known.
+- `window.__llamadartBridgeBootstrapVerbose`
+  - Default `false` in chat app bootstrap.
+  - Set to `true` to enable verbose bridge bootstrap `console.*` logs.

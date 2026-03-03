@@ -33,6 +33,8 @@ void main() {
       globalContext.delete('__llamadartBridgeUserAgent'.toJS);
       globalContext.delete('__llamadartAllowSafariWebGpu'.toJS);
       globalContext.delete('__llamadartBridgeAdaptiveSafariGpu'.toJS);
+      globalContext.delete('__llamadartBridgeRemoteFetchChunkBytes'.toJS);
+      globalContext.delete('__llamadartBridgeThreadPoolSize'.toJS);
     }
 
     setUp(() {
@@ -343,8 +345,49 @@ void main() {
         final logLevel = config.getProperty('logLevel'.toJS);
         expect(logLevel.isA<JSNumber>(), isTrue);
         expect((logLevel as JSNumber).toDartInt, LlamaLogLevel.info.index);
+
+        final remoteFetchChunkBytes = config.getProperty(
+          'remoteFetchChunkBytes'.toJS,
+        );
+        expect(remoteFetchChunkBytes.isA<JSNumber>(), isTrue);
+        expect((remoteFetchChunkBytes as JSNumber).toDartInt, 4 * 1024 * 1024);
       },
     );
+
+    test('uses global remote fetch chunk override in bridge config', () async {
+      globalContext.setProperty(
+        '__llamadartBridgeRemoteFetchChunkBytes'.toJS,
+        (2 * 1024 * 1024).toJS,
+      );
+
+      await backend.modelLoadFromUrl(
+        'https://example.com/model.gguf',
+        const ModelParams(),
+      );
+
+      final config = lastBridgeConfig as JSObject?;
+      expect(config, isNotNull);
+      final remoteFetchChunkBytes = config!.getProperty(
+        'remoteFetchChunkBytes'.toJS,
+      );
+      expect(remoteFetchChunkBytes.isA<JSNumber>(), isTrue);
+      expect((remoteFetchChunkBytes as JSNumber).toDartInt, 2 * 1024 * 1024);
+    });
+
+    test('passes thread pool size hint to bridge config', () async {
+      globalContext.setProperty('__llamadartBridgeThreadPoolSize'.toJS, 2.toJS);
+
+      await backend.modelLoadFromUrl(
+        'https://example.com/model.gguf',
+        const ModelParams(),
+      );
+
+      final config = lastBridgeConfig as JSObject?;
+      expect(config, isNotNull);
+      final threadPoolSize = config!.getProperty('threadPoolSize'.toJS);
+      expect(threadPoolSize.isA<JSNumber>(), isTrue);
+      expect((threadPoolSize as JSNumber).toDartInt, 2);
+    });
 
     test('propagates runtime log level updates to bridge', () async {
       await backend.modelLoadFromUrl(
@@ -356,6 +399,69 @@ void main() {
 
       await backend.setLogLevel(LlamaLogLevel.error);
       expect(lastBridgeLogLevel, LlamaLogLevel.error.index);
+    });
+
+    test('suppresses bridge logger callbacks when log level is none', () async {
+      await backend.modelLoadFromUrl(
+        'https://example.com/model.gguf',
+        const ModelParams(),
+      );
+
+      final config = lastBridgeConfig as JSObject?;
+      expect(config, isNotNull);
+      final logger = config!.getProperty('logger'.toJS);
+      expect(logger.isA<JSObject>(), isTrue);
+      final loggerObject = logger as JSObject;
+
+      final debugFn = loggerObject.getProperty('debug'.toJS) as JSFunction?;
+      final logFn = loggerObject.getProperty('log'.toJS) as JSFunction?;
+      final warnFn = loggerObject.getProperty('warn'.toJS) as JSFunction?;
+      final errorFn = loggerObject.getProperty('error'.toJS) as JSFunction?;
+
+      final consoleObject =
+          globalContext.getProperty('console'.toJS) as JSObject;
+      final originalDebug = consoleObject.getProperty('debug'.toJS);
+      final originalLog = consoleObject.getProperty('log'.toJS);
+      final originalWarn = consoleObject.getProperty('warn'.toJS);
+      final originalError = consoleObject.getProperty('error'.toJS);
+
+      var debugCalls = 0;
+      var logCalls = 0;
+      var warnCalls = 0;
+      var errorCalls = 0;
+
+      consoleObject.setProperty(
+        'debug'.toJS,
+        ((JSAny? _) => debugCalls += 1).toJS,
+      );
+      consoleObject.setProperty('log'.toJS, ((JSAny? _) => logCalls += 1).toJS);
+      consoleObject.setProperty(
+        'warn'.toJS,
+        ((JSAny? _) => warnCalls += 1).toJS,
+      );
+      consoleObject.setProperty(
+        'error'.toJS,
+        ((JSAny? _) => errorCalls += 1).toJS,
+      );
+
+      try {
+        await backend.setLogLevel(LlamaLogLevel.none);
+
+        debugFn?.callAsFunction(null, 'debug'.toJS);
+        logFn?.callAsFunction(null, 'log'.toJS);
+        warnFn?.callAsFunction(null, 'warn'.toJS);
+        errorFn?.callAsFunction(null, 'error'.toJS);
+
+        expect(debugCalls, 0);
+        expect(logCalls, 0);
+        expect(warnCalls, 0);
+        expect(errorCalls, 0);
+      } finally {
+        consoleObject.setProperty('debug'.toJS, originalDebug);
+        consoleObject.setProperty('log'.toJS, originalLog);
+        consoleObject.setProperty('warn'.toJS, originalWarn);
+        consoleObject.setProperty('error'.toJS, originalError);
+      }
     });
 
     test('forces CPU fallback on Safari unless override is enabled', () async {

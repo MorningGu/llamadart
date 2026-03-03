@@ -104,7 +104,6 @@ class ChatService {
     if (settings.mmprojPath != null && settings.mmprojPath!.isNotEmpty) {
       try {
         await _engine.loadMultimodalProjector(settings.mmprojPath!);
-        debugPrint("Loaded multimodal projector from ${settings.mmprojPath}");
       } catch (e) {
         debugPrint("Failed to load multimodal projector: $e");
         throw Exception(

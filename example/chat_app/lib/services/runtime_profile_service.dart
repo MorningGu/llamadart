@@ -6,17 +6,59 @@ import '../utils/backend_utils.dart';
 class RuntimeProfileService {
   const RuntimeProfileService();
 
-  ({int? runtimeGpuLayers, int? runtimeThreads}) buildDiagnostics({
-    required Map<String, String> metadata,
-  }) {
+  ({
+    int? runtimeGpuLayers,
+    int? runtimeThreads,
+    int? runtimeThreadPoolSize,
+    String? runtimeExecution,
+    String? runtimeCoreVariant,
+    String? runtimeWorkerFallbackReason,
+    String? runtimeNotes,
+    String? runtimeModelSource,
+    String? runtimeModelCacheState,
+  })
+  buildDiagnostics({required Map<String, String> metadata}) {
     final runtimeGpuLayers = int.tryParse(
       metadata['llamadart.webgpu.n_gpu_layers'] ?? '',
     );
     final runtimeThreads = int.tryParse(
       metadata['llamadart.webgpu.n_threads'] ?? '',
     );
+    final runtimeThreadPoolSize = int.tryParse(
+      metadata['llamadart.webgpu.thread_pool_size'] ?? '',
+    );
 
-    return (runtimeGpuLayers: runtimeGpuLayers, runtimeThreads: runtimeThreads);
+    return (
+      runtimeGpuLayers: runtimeGpuLayers,
+      runtimeThreads: runtimeThreads,
+      runtimeThreadPoolSize: runtimeThreadPoolSize,
+      runtimeExecution: _metadataValue(metadata, 'llamadart.webgpu.execution'),
+      runtimeCoreVariant: _metadataValue(
+        metadata,
+        'llamadart.webgpu.core_variant',
+      ),
+      runtimeWorkerFallbackReason: _metadataValue(
+        metadata,
+        'llamadart.webgpu.worker_fallback_reason',
+      ),
+      runtimeNotes: _metadataValue(metadata, 'llamadart.webgpu.runtime_notes'),
+      runtimeModelSource: _metadataValue(
+        metadata,
+        'llamadart.webgpu.model_source',
+      ),
+      runtimeModelCacheState: _metadataValue(
+        metadata,
+        'llamadart.webgpu.model_cache_state',
+      ),
+    );
+  }
+
+  String? _metadataValue(Map<String, String> metadata, String key) {
+    final value = metadata[key]?.trim();
+    if (value == null || value.isEmpty) {
+      return null;
+    }
+    return value;
   }
 
   ({int gpuLayers, int contextSize}) estimateDynamicSettings({

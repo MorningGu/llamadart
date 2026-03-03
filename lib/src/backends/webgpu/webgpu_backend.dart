@@ -22,7 +22,9 @@ class WebGpuLlamaBackend
     implements LlamaBackend, BackendAvailability, BackendBatchEmbeddings {
   static const Duration _bridgeReadyTimeout = Duration(seconds: 12);
   static const Duration _bridgePollInterval = Duration(milliseconds: 100);
-  static const int _remoteFetchChunkBytes = 256 * 1024;
+  static const int _defaultRemoteFetchChunkBytes = 4 * 1024 * 1024;
+  static const int _minRemoteFetchChunkBytes = 4 * 1024;
+  static const int _maxRemoteFetchChunkBytes = 16 * 1024 * 1024;
 
   final String? _bridgeScriptUrl;
   final String? _bridgeWasmUrl;
@@ -128,33 +130,25 @@ class WebGpuLlamaBackend
     logger.setProperty(
       'debug'.toJS,
       (JSAny? msg) {
-        if (_logLevel.index <= LlamaLogLevel.debug.index) {
-          console.debug(msg);
-        }
+        _emitConsole(LlamaLogLevel.debug, msg);
       }.toJS,
     );
     logger.setProperty(
       'log'.toJS,
       (JSAny? msg) {
-        if (_logLevel.index <= LlamaLogLevel.info.index) {
-          console.log(msg);
-        }
+        _emitConsole(LlamaLogLevel.info, msg);
       }.toJS,
     );
     logger.setProperty(
       'warn'.toJS,
       (JSAny? msg) {
-        if (_logLevel.index <= LlamaLogLevel.warn.index) {
-          console.warn(msg);
-        }
+        _emitConsole(LlamaLogLevel.warn, msg);
       }.toJS,
     );
     logger.setProperty(
       'error'.toJS,
       (JSAny? msg) {
-        if (_logLevel.index <= LlamaLogLevel.error.index) {
-          console.error(msg);
-        }
+        _emitConsole(LlamaLogLevel.error, msg);
       }.toJS,
     );
 
@@ -167,6 +161,9 @@ class WebGpuLlamaBackend
     final preferMemory64 =
         _preferMemory64Override ??
         _getGlobalOptionalBool('__llamadartBridgePreferMemory64');
+    final threadPoolSizeHint = _getGlobalPositiveInt(
+      '__llamadartBridgeThreadPoolSize',
+    );
     final allowAutoRemoteFetchBackend =
         _getGlobalOptionalBool(
           '__llamadartBridgeAllowAutoRemoteFetchBackend',
@@ -180,8 +177,9 @@ class WebGpuLlamaBackend
       coreModuleUrl: coreModuleUrl?.toJS,
       coreModuleUrlMem64: coreModuleUrlMem64?.toJS,
       preferMemory64: preferMemory64,
+      threadPoolSize: threadPoolSizeHint,
       allowAutoRemoteFetchBackend: allowAutoRemoteFetchBackend,
-      remoteFetchChunkBytes: _remoteFetchChunkBytes,
+      remoteFetchChunkBytes: _resolveRemoteFetchChunkBytes(),
       logLevel: _logLevel.index,
       logger: logger,
     );
@@ -265,6 +263,40 @@ class WebGpuLlamaBackend
     _syncBridgeLogLevel();
   }
 
+  bool _shouldEmitConsole(LlamaLogLevel level) {
+    if (_logLevel == LlamaLogLevel.none) {
+      return false;
+    }
+    return _logLevel.index <= level.index;
+  }
+
+  void _emitConsole(LlamaLogLevel level, JSAny? message) {
+    if (!_shouldEmitConsole(level)) {
+      return;
+    }
+
+    switch (level) {
+      case LlamaLogLevel.debug:
+        console.debug(message);
+        return;
+      case LlamaLogLevel.info:
+        console.log(message);
+        return;
+      case LlamaLogLevel.warn:
+        console.warn(message);
+        return;
+      case LlamaLogLevel.error:
+        console.error(message);
+        return;
+      case LlamaLogLevel.none:
+        return;
+    }
+  }
+
+  void _emitConsoleText(LlamaLogLevel level, String message) {
+    _emitConsole(level, message.toJS);
+  }
+
   void _syncBridgeLogLevel() {
     final bridge = _bridge;
     if (bridge == null) {
@@ -325,6 +357,30 @@ class WebGpuLlamaBackend
 
   String? _getBridgeLoadError() {
     return _getGlobalString('__llamadartBridgeLoadError');
+  }
+
+  int? _getGlobalPositiveInt(String propertyName) {
+    final raw = globalContext.getProperty(propertyName.toJS);
+    if (raw.isA<JSNumber>()) {
+      final value = (raw as JSNumber).toDartInt;
+      return value > 0 ? value : null;
+    }
+
+    final parsed = int.tryParse(raw.toString().trim());
+    if (parsed == null || parsed <= 0) {
+      return null;
+    }
+    return parsed;
+  }
+
+  int _resolveRemoteFetchChunkBytes() {
+    final override = _getGlobalPositiveInt(
+      '__llamadartBridgeRemoteFetchChunkBytes',
+    );
+    final chunkBytes = override ?? _defaultRemoteFetchChunkBytes;
+    return chunkBytes
+        .clamp(_minRemoteFetchChunkBytes, _maxRemoteFetchChunkBytes)
+        .toInt();
   }
 
   bool _getGlobalBool(String propertyName) {
@@ -700,11 +756,11 @@ class WebGpuLlamaBackend
         !_allowSafariWebGpu() &&
         !_bridgeSupportsAdaptiveSafariGpu()) {
       requestedGpuLayers = 0;
-      console.warn(
+      _emitConsoleText(
+        LlamaLogLevel.warn,
         'WebGpuLlamaBackend: Safari WebGPU generation is unstable for legacy bridge assets; forcing CPU fallback. '
-                'Use bridge assets with adaptive Safari GPU probe support, or set '
-                'window.__llamadartAllowSafariWebGpu = true to bypass this safeguard.'
-            .toJS,
+        'Use bridge assets with adaptive Safari GPU probe support, or set '
+        'window.__llamadartAllowSafariWebGpu = true to bypass this safeguard.',
       );
     }
 
@@ -744,7 +800,7 @@ class WebGpuLlamaBackend
     var retriedAfterFsWriteFailureWithRemote = false;
     var remoteFetchBackendKnownUnstable = false;
     var wasm64InteropKnownBroken = false;
-    var remoteFetchChunkBytesOverride = _remoteFetchChunkBytes;
+    var remoteFetchChunkBytesOverride = _resolveRemoteFetchChunkBytes();
     for (var index = 0; index < loadAttempts.length; index += 1) {
       final attempt = loadAttempts[index];
       _lastNCtx = attempt.contextSize;
@@ -789,11 +845,11 @@ class WebGpuLlamaBackend
         }
 
         if (index > 0) {
-          console.warn(
+          _emitConsoleText(
+            LlamaLogLevel.warn,
             'WebGpuLlamaBackend: model loaded after fallback '
-                    '(nCtx=${attempt.contextSize}, nGpuLayers=${attempt.gpuLayers}, '
-                    'nThreads=${attemptThreads ?? 'auto'})'
-                .toJS,
+            '(nCtx=${attempt.contextSize}, nGpuLayers=${attempt.gpuLayers}, '
+            'nThreads=${attemptThreads ?? 'auto'})',
           );
         }
 
@@ -812,10 +868,14 @@ class WebGpuLlamaBackend
         }
         lastRuntimeHints = runtimeHints;
 
-        console.error('WebGpuLlamaBackend: Bridge model load failed: $e'.toJS);
+        _emitConsoleText(
+          LlamaLogLevel.error,
+          'WebGpuLlamaBackend: Bridge model load failed: $e',
+        );
         if (runtimeHints.isNotEmpty) {
-          console.warn(
-            'WebGpuLlamaBackend: bridge runtime hints $runtimeHints'.toJS,
+          _emitConsoleText(
+            LlamaLogLevel.warn,
+            'WebGpuLlamaBackend: bridge runtime hints $runtimeHints',
           );
         }
 
@@ -862,7 +922,7 @@ class WebGpuLlamaBackend
             remoteFetchAborted &&
             forceRemoteFetchRequested &&
             !threadConstructorFailure &&
-            remoteFetchChunkBytesOverride > 4 * 1024;
+            remoteFetchChunkBytesOverride > _minRemoteFetchChunkBytes;
         final shouldRetryWithWasm32 =
             !retriedWithWasm32 &&
             coreVariant == 'wasm64' &&
@@ -886,17 +946,17 @@ class WebGpuLlamaBackend
         if (shouldRetryWithSmallerRemoteFetchChunks) {
           remoteFetchChunkRetryCount += 1;
           remoteFetchChunkBytesOverride = math.max(
-            4 * 1024,
+            _minRemoteFetchChunkBytes,
             remoteFetchChunkBytesOverride ~/ 2,
           );
           _forceRemoteFetchBackendOverride = true;
           index = -1;
-          console.warn(
+          _emitConsoleText(
+            LlamaLogLevel.warn,
             'WebGpuLlamaBackend: fetch-backed model loading aborted; '
-                    'retrying with smaller fetch chunks '
-                    '(${remoteFetchChunkBytesOverride ~/ 1024} KiB, '
-                    'attempt #$remoteFetchChunkRetryCount).'
-                .toJS,
+            'retrying with smaller fetch chunks '
+            '(${remoteFetchChunkBytesOverride ~/ 1024} KiB, '
+            'attempt #$remoteFetchChunkRetryCount).',
           );
           continue;
         }
@@ -910,15 +970,14 @@ class WebGpuLlamaBackend
           }
 
           index = -1;
-          console.warn(
+          _emitConsoleText(
+            LlamaLogLevel.warn,
             coreVariant == 'wasm32'
                 ? 'WebGpuLlamaBackend: fetch-backed model loading aborted on '
-                          'wasm32; retrying with wasm64 core and streamed '
-                          'network loading.'
-                      .toJS
+                      'wasm32; retrying with wasm64 core and streamed '
+                      'network loading.'
                 : 'WebGpuLlamaBackend: fetch-backed model loading aborted; '
-                          'retrying with streamed network loading.'
-                      .toJS,
+                      'retrying with streamed network loading.',
           );
           continue;
         }
@@ -931,10 +990,10 @@ class WebGpuLlamaBackend
           _preferMemory64Override = false;
           _forceRemoteFetchBackendOverride = false;
           index = -1;
-          console.warn(
+          _emitConsoleText(
+            LlamaLogLevel.warn,
             'WebGpuLlamaBackend: wasm64 BigInt interop failure detected; '
-                    'retrying with wasm32 core.'
-                .toJS,
+            'retrying with wasm32 core.',
           );
           continue;
         }
@@ -947,15 +1006,14 @@ class WebGpuLlamaBackend
               ? false
               : true;
           index = -1;
-          console.warn(
+          _emitConsoleText(
+            LlamaLogLevel.warn,
             remoteFetchAttempted
                 ? 'WebGpuLlamaBackend: wasm32 memory pressure detected after '
-                          'fetch-backed loading; retrying with wasm64 core and '
-                          'streamed network loading.'
-                      .toJS
+                      'fetch-backed loading; retrying with wasm64 core and '
+                      'streamed network loading.'
                 : 'WebGpuLlamaBackend: wasm32 memory pressure detected; '
-                          'retrying with wasm64 core and fetch-backed loading.'
-                      .toJS,
+                      'retrying with wasm64 core and fetch-backed loading.',
           );
           continue;
         }
@@ -969,36 +1027,36 @@ class WebGpuLlamaBackend
               128 * 1024,
             );
             index = -1;
-            console.warn(
+            _emitConsoleText(
+              LlamaLogLevel.warn,
               'WebGpuLlamaBackend: wasm64 model staging failed; retrying '
-                      'with forced fetch-backed loading and '
-                      '${remoteFetchChunkBytesOverride ~/ 1024} KiB chunks.'
-                  .toJS,
+              'with forced fetch-backed loading and '
+              '${remoteFetchChunkBytesOverride ~/ 1024} KiB chunks.',
             );
             continue;
           }
 
-          console.warn(
+          _emitConsoleText(
+            LlamaLogLevel.warn,
             'WebGpuLlamaBackend: wasm64 model staging failed; skipping '
-                    'fallback ladder because additional nCtx/GPU/thread '
-                    'reductions are unlikely to recover FS write failures.'
-                .toJS,
+            'fallback ladder because additional nCtx/GPU/thread '
+            'reductions are unlikely to recover FS write failures.',
           );
         }
 
         if (canRetry) {
           final nextAttempt = loadAttempts[index + 1];
-          console.warn(
+          _emitConsoleText(
+            LlamaLogLevel.warn,
             'WebGpuLlamaBackend: retrying web model load with reduced '
-                    'settings (nCtx=${nextAttempt.contextSize}, '
-                    'nGpuLayers=${nextAttempt.gpuLayers}, '
-                    'nThreads=${switch (index + 1) {
-                          0 => requestedThreads,
-                          1 || 2 => requestedThreads == null ? 4 : math.min(requestedThreads, 4),
-                          3 || 4 || 5 || 6 => requestedThreads == null ? 2 : math.min(requestedThreads, 2),
-                          _ => 1,
-                        } ?? 'auto'})'
-                .toJS,
+            'settings (nCtx=${nextAttempt.contextSize}, '
+            'nGpuLayers=${nextAttempt.gpuLayers}, '
+            'nThreads=${switch (index + 1) {
+                  0 => requestedThreads,
+                  1 || 2 => requestedThreads == null ? 4 : math.min(requestedThreads, 4),
+                  3 || 4 || 5 || 6 => requestedThreads == null ? 2 : math.min(requestedThreads, 2),
+                  _ => 1,
+                } ?? 'auto'})',
           );
           continue;
         }

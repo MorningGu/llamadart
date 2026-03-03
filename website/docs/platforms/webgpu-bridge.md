@@ -45,6 +45,12 @@ You can override bridge asset source/version before loader startup:
 <script>
   window.__llamadartBridgeAssetsRepo = 'leehack/llama-web-bridge-assets';
   window.__llamadartBridgeAssetsTag = 'v0.1.7';
+  // Optional knobs:
+  // window.__llamadartBridgeEnableMem64 = false;
+  // window.__llamadartBridgeAllowAutoRemoteFetchBackend = false;
+  // window.__llamadartBridgeRemoteFetchChunkBytes = 4 * 1024 * 1024;
+  // window.__llamadartBridgeThreadPoolSize = 2;
+  // window.__llamadartBridgeBootstrapVerbose = true;
 </script>
 ```
 

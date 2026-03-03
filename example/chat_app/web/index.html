@@ -51,12 +51,38 @@
   <script type="module">
     const configuredRepo = window.__llamadartBridgeAssetsRepo;
     const configuredTag = window.__llamadartBridgeAssetsTag;
+    const bridgeBootstrapVerbose =
+      window.__llamadartBridgeBootstrapVerbose === true;
+    const configuredThreadPoolSize = Number(window.__llamadartBridgeThreadPoolSize);
+    const hardwareConcurrency = Number(window.navigator?.hardwareConcurrency);
+    const inferredThreadPoolSize =
+      window.crossOriginIsolated === true
+        ? Number.isFinite(hardwareConcurrency) && hardwareConcurrency > 0
+          ? Math.max(2, Math.min(4, Math.trunc(hardwareConcurrency)))
+          : 2
+        : 1;
+    const bridgeThreadPoolSize =
+      Number.isFinite(configuredThreadPoolSize) && configuredThreadPoolSize > 0
+        ? Math.max(1, Math.trunc(configuredThreadPoolSize))
+        : inferredThreadPoolSize;
+    window.__llamadartBridgeThreadPoolSize = bridgeThreadPoolSize;
     const safariMinPacked = 170400;
     const safariUnsupportedNeedle =
       'if(currentSafariVersion<TARGET_NOT_SUPPORTED){throw new Error(`This page was compiled without support for Safari browser. Pass -sMIN_SAFARI_VERSION=${currentSafariVersion} or lower to enable support for this browser.`)}';
     const safariMinPattern =
       /if\(currentSafariVersion<\d+\)\{throw new Error\(`This emscripten-generated code requires Safari v\$\{packedVersionToHumanReadable\(\d+\)\} \(detected v\$\{currentSafariVersion\}\)`\)\}/;
     let patchedCoreBlobUrl = null;
+
+    function bridgeBootstrapLog(level, ...args) {
+      if (!bridgeBootstrapVerbose || typeof console === 'undefined') {
+        return;
+      }
+
+      const fn = console[level];
+      if (typeof fn === 'function') {
+        fn.apply(console, args);
+      }
+    }
 
     function isSafariBrowser() {
       const ua = navigator.userAgent || '';
@@ -109,7 +135,7 @@
         new Blob([patchedSource], { type: 'text/javascript' }),
       );
       window.__llamadartBridgeCoreModuleUrl = patchedCoreBlobUrl;
-      console.info('llamadart: applied Safari core compatibility patch');
+      bridgeBootstrapLog('info', 'llamadart: applied Safari core compatibility patch');
       return patchedCoreBlobUrl;
     }
 
@@ -121,7 +147,7 @@
       typeof configuredTag === 'string' && configuredTag.length > 0
         ? configuredTag
         : 'v0.1.7';
-    const localBridgeVersion = 'v0.1.7-20260228';
+    const localBridgeVersion = 'v0.1.7-local-20260303b';
 
     const localBridgeUrl = `./webgpu_bridge/llama_webgpu_bridge.js?v=${localBridgeVersion}`;
     const cdnBridgeUrl = `https://cdn.jsdelivr.net/gh/${bridgeAssetsRepo}@${bridgeAssetsTag}/llama_webgpu_bridge.js`;
@@ -165,7 +191,7 @@
         ? deriveWorkerModuleUrl(moduleUrl)
         : null;
       const coreModuleUrlMem64 = deriveMem64CoreModuleUrl(moduleUrl);
-      const preferMemory64 = window.__llamadartBridgeEnableMem64 !== false;
+      const preferMemory64 = window.__llamadartBridgeEnableMem64 === true;
 
       window.LlamaWebGpuBridge = mod.LlamaWebGpuBridge;
       window.__llamadartBridgeAdaptiveSafariGpu =
@@ -178,8 +204,9 @@
       window.__llamadartBridgePreferMemory64 = preferMemory64;
       window.__llamadartBridgeWorkerFallbackReason = null;
       window.__llamadartBridgeLoadError = null;
-      console.info(
-        `llamadart: Web bridge runtime loaded (${source}), worker=${workerModuleUrl ?? 'auto'}, mem64=${coreModuleUrlMem64 ?? 'none'}, preferMem64=${preferMemory64}`,
+      bridgeBootstrapLog(
+        'info',
+        `llamadart: Web bridge runtime loaded (${source}), worker=${workerModuleUrl ?? 'auto'}, mem64=${coreModuleUrlMem64 ?? 'none'}, preferMem64=${preferMemory64}, threadPool=${bridgeThreadPoolSize}`,
       );
     }
 
@@ -187,7 +214,11 @@
     loadBridge(localBridgeUrl, 'local')
       .catch((err) => {
         localError = err;
-        console.warn('llamadart: local bridge load failed, falling back to CDN', err);
+        bridgeBootstrapLog(
+          'warn',
+          'llamadart: local bridge load failed, falling back to CDN',
+          err,
+        );
         return loadBridge(cdnBridgeUrl, 'cdn');
       })
       .catch((cdnErr) => {
@@ -195,7 +226,7 @@
           `Local load failed: ${String(localError)} | ` +
           `CDN load failed: ${String(cdnErr)}`;
         window.__llamadartBridgeLoadError = detail;
-        console.error('llamadart: failed to load bridge runtime', detail);
+        bridgeBootstrapLog('error', 'llamadart: failed to load bridge runtime', detail);
       });
   </script>
   <script src="flutter_bootstrap.js" async></script>

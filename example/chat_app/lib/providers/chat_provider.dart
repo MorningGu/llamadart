@@ -83,6 +83,13 @@ class ChatProvider extends ChangeNotifier {
   bool _isPruning = false;
   int? _runtimeGpuLayers;
   int? _runtimeThreads;
+  int? _runtimeThreadPoolSize;
+  String? _runtimeExecution;
+  String? _runtimeCoreVariant;
+  String? _runtimeWorkerFallbackReason;
+  String? _runtimeNotes;
+  String? _runtimeModelSource;
+  String? _runtimeModelCacheState;
   int? _lastFirstTokenLatencyMs;
   int? _lastGenerationLatencyMs;
   double? _lastTokensPerSecond;
@@ -129,6 +136,13 @@ class ChatProvider extends ChangeNotifier {
   List<String> get availableDevices => _availableDevices;
   int? get runtimeGpuLayers => _runtimeGpuLayers;
   int? get runtimeThreads => _runtimeThreads;
+  int? get runtimeThreadPoolSize => _runtimeThreadPoolSize;
+  String? get runtimeExecution => _runtimeExecution;
+  String? get runtimeCoreVariant => _runtimeCoreVariant;
+  String? get runtimeWorkerFallbackReason => _runtimeWorkerFallbackReason;
+  String? get runtimeNotes => _runtimeNotes;
+  String? get runtimeModelSource => _runtimeModelSource;
+  String? get runtimeModelCacheState => _runtimeModelCacheState;
   int? get lastFirstTokenLatencyMs => _lastFirstTokenLatencyMs;
   int? get lastGenerationLatencyMs => _lastGenerationLatencyMs;
   double? get lastTokensPerSecond => _lastTokensPerSecond;
@@ -311,6 +325,15 @@ class ChatProvider extends ChangeNotifier {
     if (targetModelPath == null || targetModelPath.isEmpty) {
       _session = null;
       _isLoaded = false;
+      _runtimeGpuLayers = null;
+      _runtimeThreads = null;
+      _runtimeThreadPoolSize = null;
+      _runtimeExecution = null;
+      _runtimeCoreVariant = null;
+      _runtimeWorkerFallbackReason = null;
+      _runtimeNotes = null;
+      _runtimeModelSource = null;
+      _runtimeModelCacheState = null;
       notifyListeners();
       return;
     }
@@ -428,6 +451,15 @@ class ChatProvider extends ChangeNotifier {
     _error = null;
     _loadingProgress = 0.0;
     _activeBackend = 'Loading model...';
+    _runtimeGpuLayers = null;
+    _runtimeThreads = null;
+    _runtimeThreadPoolSize = null;
+    _runtimeExecution = null;
+    _runtimeCoreVariant = null;
+    _runtimeWorkerFallbackReason = null;
+    _runtimeNotes = null;
+    _runtimeModelSource = null;
+    _runtimeModelCacheState = null;
     notifyListeners();
 
     DateTime lastProgressNotifyAt = DateTime.now();
@@ -551,6 +583,15 @@ class ChatProvider extends ChangeNotifier {
           await _getResolvedGpuLayersBestEffort() ??
           runtimeDiagnostics.runtimeGpuLayers;
       _runtimeThreads = runtimeDiagnostics.runtimeThreads;
+      _runtimeThreadPoolSize = runtimeDiagnostics.runtimeThreadPoolSize;
+      _runtimeExecution = runtimeDiagnostics.runtimeExecution;
+      _runtimeCoreVariant = runtimeDiagnostics.runtimeCoreVariant;
+      _runtimeWorkerFallbackReason =
+          runtimeDiagnostics.runtimeWorkerFallbackReason;
+      _runtimeNotes = runtimeDiagnostics.runtimeNotes;
+      _runtimeModelSource = runtimeDiagnostics.runtimeModelSource;
+      _runtimeModelCacheState = runtimeDiagnostics.runtimeModelCacheState;
+      _publishWebRuntimeDiagnosticsHints();
 
       _addInfoMessage('Model loaded successfully! Ready to chat.');
       _isLoaded = true;
@@ -886,6 +927,44 @@ class ChatProvider extends ChangeNotifier {
     _syncActiveConversationSnapshot();
   }
 
+  void _publishWebRuntimeDiagnosticsHints() {
+    if (!kIsWeb) {
+      return;
+    }
+
+    final runtimeNotes = (_runtimeNotes ?? '')
+        .split(';')
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet();
+
+    if (runtimeNotes.contains('threads_capped_no_coi')) {
+      _addInfoMessage(
+        'Web runtime is not cross-origin isolated, so inference threads are capped to 1. '
+        'Enable COOP/COEP headers for better throughput.',
+      );
+    }
+
+    final poolCapNote = runtimeNotes.firstWhere(
+      (note) => note.startsWith('threads_capped_pool:'),
+      orElse: () => '',
+    );
+    if (poolCapNote.isNotEmpty) {
+      final poolSize = poolCapNote.split(':').last;
+      _addInfoMessage(
+        'Web runtime threads were capped to $poolSize to match pthread pool size and avoid deadlock risks.',
+      );
+    }
+
+    final workerFallbackReason = _runtimeWorkerFallbackReason;
+    if (workerFallbackReason != null && workerFallbackReason.isNotEmpty) {
+      _addInfoMessage(
+        'Web bridge worker fallback detected ($workerFallbackReason). '
+        'Model load/generation may be slower in this mode.',
+      );
+    }
+  }
+
   void _addStagedPart(LlamaContentPart part) {
     _stagedParts.add(part);
     notifyListeners();
@@ -1102,6 +1181,15 @@ class ChatProvider extends ChangeNotifier {
     _contextLimit = 0;
     _loadedModelPath = null;
     _loadedMmprojPath = null;
+    _runtimeGpuLayers = null;
+    _runtimeThreads = null;
+    _runtimeThreadPoolSize = null;
+    _runtimeExecution = null;
+    _runtimeCoreVariant = null;
+    _runtimeWorkerFallbackReason = null;
+    _runtimeNotes = null;
+    _runtimeModelSource = null;
+    _runtimeModelCacheState = null;
     _syncActiveConversationSnapshot(touchUpdatedAt: false);
     notifyListeners();
   }
@@ -1241,6 +1329,15 @@ class ChatProvider extends ChangeNotifier {
       _isLoaded = false;
       _loadedModelPath = null;
       _loadedMmprojPath = null;
+      _runtimeGpuLayers = null;
+      _runtimeThreads = null;
+      _runtimeThreadPoolSize = null;
+      _runtimeExecution = null;
+      _runtimeCoreVariant = null;
+      _runtimeWorkerFallbackReason = null;
+      _runtimeNotes = null;
+      _runtimeModelSource = null;
+      _runtimeModelCacheState = null;
       await _chatService.dispose();
     } finally {
       _isShuttingDown = false;

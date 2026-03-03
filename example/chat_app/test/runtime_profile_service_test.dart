@@ -11,11 +11,29 @@ void main() {
         metadata: const <String, String>{
           'llamadart.webgpu.n_gpu_layers': '32',
           'llamadart.webgpu.n_threads': '8',
+          'llamadart.webgpu.thread_pool_size': '2',
+          'llamadart.webgpu.execution': 'worker',
+          'llamadart.webgpu.core_variant': 'wasm64',
+          'llamadart.webgpu.worker_fallback_reason': 'threads_capped_no_coi',
+          'llamadart.webgpu.runtime_notes':
+              'threads_capped_no_coi;model_fetch_backend_attempt',
+          'llamadart.webgpu.model_source': 'network-fetch',
+          'llamadart.webgpu.model_cache_state': 'hit',
         },
       );
 
       expect(diagnostics.runtimeGpuLayers, 32);
       expect(diagnostics.runtimeThreads, 8);
+      expect(diagnostics.runtimeThreadPoolSize, 2);
+      expect(diagnostics.runtimeExecution, 'worker');
+      expect(diagnostics.runtimeCoreVariant, 'wasm64');
+      expect(diagnostics.runtimeWorkerFallbackReason, 'threads_capped_no_coi');
+      expect(
+        diagnostics.runtimeNotes,
+        'threads_capped_no_coi;model_fetch_backend_attempt',
+      );
+      expect(diagnostics.runtimeModelSource, 'network-fetch');
+      expect(diagnostics.runtimeModelCacheState, 'hit');
     });
 
     test('returns fallback estimate when VRAM unavailable', () {

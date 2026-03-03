@@ -104,6 +104,7 @@ extension type WebGpuBridgeConfig._(JSObject _) implements JSObject {
     @JS('coreModuleUrl') JSString? coreModuleUrl,
     @JS('coreModuleUrlMem64') JSString? coreModuleUrlMem64,
     bool? preferMemory64,
+    int? threadPoolSize,
     @JS('allowAutoRemoteFetchBackend') bool? allowAutoRemoteFetchBackend,
     int? remoteFetchThresholdBytes,
     int? remoteFetchChunkBytes,
