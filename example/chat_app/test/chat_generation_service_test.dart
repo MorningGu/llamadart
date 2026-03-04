@@ -49,7 +49,8 @@ void main() {
       expect(result.generatedTokens, 2);
       expect(result.firstTokenLatencyMs, isNotNull);
       expect(result.elapsedMs, greaterThanOrEqualTo(0));
-      expect(updates, hasLength(2));
+      expect(result.decodeElapsedMs, greaterThanOrEqualTo(0));
+      expect(updates.length, greaterThanOrEqualTo(2));
       expect(updates.last.cleanText, 'Hello');
       expect(updates.last.fullThinking, 'ab');
       expect(updates.last.shouldNotify, isTrue);

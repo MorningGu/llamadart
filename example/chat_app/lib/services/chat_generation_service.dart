@@ -39,7 +39,9 @@ class GenerationStreamResult {
 class ChatGenerationService {
   const ChatGenerationService();
 
-  static const int _streamRevealIntervalMs = 16;
+  static const int _streamTickIntervalMs = 8;
+  static const int _streamRevealDelayMinMs = 8;
+  static const int _streamRevealDelayMaxMs = 24;
   static const int _streamFlushBudgetMs = 220;
   static const int _tokenDeltaFlushBatchSize = 8;
 
@@ -94,6 +96,8 @@ class ChatGenerationService {
     var streamCancelled = false;
     var pendingTokenDelta = 0;
     var streamElapsedMs = 0;
+    var revealDelayMs = _streamRevealDelayMaxMs;
+    var lastRevealAt = DateTime.fromMillisecondsSinceEpoch(0);
 
     void emitUpdate({bool forceNotify = false, bool flushTokenDelta = false}) {
       final now = DateTime.now();
@@ -160,12 +164,32 @@ class ChatGenerationService {
 
     final revealTicker =
         Stream<void>.periodic(
-          const Duration(milliseconds: _streamRevealIntervalMs),
+          const Duration(milliseconds: _streamTickIntervalMs),
           (_) {},
         ).listen((_) {
           if (streamCompleted || streamCancelled) {
             return;
           }
+
+          final backlog = cleanTarget.length - visibleCleanText.length;
+          if (backlog <= 0) {
+            return;
+          }
+
+          revealDelayMs = _smoothRevealDelayMs(
+            currentMs: revealDelayMs,
+            targetMs: _targetRevealDelayMsForBacklog(backlog),
+          );
+
+          final now = DateTime.now();
+          final elapsedSinceLastReveal = now
+              .difference(lastRevealAt)
+              .inMilliseconds;
+          if (elapsedSinceLastReveal < revealDelayMs) {
+            return;
+          }
+
+          lastRevealAt = now;
           advanceVisibleTextAndEmit();
         });
 
@@ -210,10 +234,13 @@ class ChatGenerationService {
         pendingTokenDelta += 1;
 
         cleanTarget = cleanResponse(fullResponse);
-        visibleCleanText = _advanceVisibleText(
-          currentText: visibleCleanText,
-          targetText: cleanTarget,
-        );
+        if (visibleCleanText.isEmpty && cleanTarget.isNotEmpty) {
+          visibleCleanText = _advanceVisibleText(
+            currentText: visibleCleanText,
+            targetText: cleanTarget,
+          );
+          lastRevealAt = DateTime.now();
+        }
 
         emitUpdate();
       }
@@ -232,7 +259,7 @@ class ChatGenerationService {
             break;
           }
           await Future<void>.delayed(
-            const Duration(milliseconds: _streamRevealIntervalMs),
+            const Duration(milliseconds: _streamTickIntervalMs),
           );
         }
       }
@@ -286,9 +313,7 @@ class ChatGenerationService {
       return targetText;
     }
 
-    final backlog = targetText.length - currentText.length;
-    final revealStep = _revealStepForBacklog(backlog);
-    var nextLength = currentText.length + revealStep;
+    var nextLength = currentText.length + 1;
     if (nextLength >= targetText.length) {
       return targetText;
     }
@@ -324,7 +349,37 @@ class ChatGenerationService {
     return codeUnit >= 0xDC00 && codeUnit <= 0xDFFF;
   }
 
-  int _revealStepForBacklog(int backlog) {
-    return backlog > 0 ? 1 : 0;
+  int _targetRevealDelayMsForBacklog(int backlog) {
+    if (backlog >= 320) {
+      return _streamRevealDelayMinMs;
+    }
+    if (backlog >= 200) {
+      return 10;
+    }
+    if (backlog >= 120) {
+      return 12;
+    }
+    if (backlog >= 64) {
+      return 14;
+    }
+    if (backlog >= 28) {
+      return 16;
+    }
+    if (backlog >= 12) {
+      return 20;
+    }
+    return _streamRevealDelayMaxMs;
+  }
+
+  int _smoothRevealDelayMs({required int currentMs, required int targetMs}) {
+    if (currentMs == targetMs) {
+      return currentMs;
+    }
+
+    if (currentMs < targetMs) {
+      return (currentMs + 2).clamp(_streamRevealDelayMinMs, targetMs);
+    }
+
+    return (currentMs - 2).clamp(targetMs, _streamRevealDelayMaxMs);
   }
 }

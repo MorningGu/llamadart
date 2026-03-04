@@ -304,6 +304,16 @@ void main() {
       expect(lastRequestedMicroBatchSize, 384);
     });
 
+    test('applies qwen3.5-0.8b batch tuning when unset', () async {
+      await backend.modelLoadFromUrl(
+        'https://example.com/Qwen_Qwen3.5-0.8B-Q4_K_M.gguf',
+        const ModelParams(contextSize: 4096),
+      );
+
+      expect(lastRequestedBatchSize, 768);
+      expect(lastRequestedMicroBatchSize, 256);
+    });
+
     test('streams generated tokens from bridge callback', () async {
       await backend.modelLoadFromUrl(
         'https://example.com/model.gguf',
@@ -318,7 +328,7 @@ void main() {
       expect(chunks.first, <int>[72, 101, 108, 108, 111]);
       expect(lastEmitCurrentTextOnToken, isFalse);
       expect(lastTokenEventEncoding, 'text');
-      expect(lastTokenEventFlushMs, 12);
+      expect(lastTokenEventFlushMs, 20);
     });
 
     test('generates embedding vector from bridge', () async {

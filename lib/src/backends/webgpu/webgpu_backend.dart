@@ -568,6 +568,27 @@ class WebGpuLlamaBackend
     return attempts;
   }
 
+  ({int? nBatch, int? nUbatch}) _resolveWebBatchTuning({
+    required String url,
+    required ModelParams params,
+  }) {
+    if (params.batchSize > 0 || params.microBatchSize > 0) {
+      return (nBatch: null, nUbatch: null);
+    }
+
+    final normalizedUrl = url.toLowerCase();
+    final isQwen35Small =
+        normalizedUrl.contains('qwen3.5-0.8b') ||
+        normalizedUrl.contains('qwen_qwen3.5-0.8b');
+    if (!isQwen35Small) {
+      return (nBatch: null, nUbatch: null);
+    }
+
+    final tunedBatch = params.contextSize >= 4096 ? 768 : 512;
+    final tunedUbatch = tunedBatch >= 768 ? 256 : 192;
+    return (nBatch: tunedBatch, nUbatch: tunedUbatch);
+  }
+
   Map<String, String> _collectBridgeRuntimeHints(LlamaWebGpuBridge bridge) {
     final metadata = bridge.getModelMetadata();
     if (metadata == null) {
@@ -793,6 +814,7 @@ class WebGpuLlamaBackend
       requestedContextSize: params.contextSize,
       requestedGpuLayers: requestedGpuLayers,
     );
+    final batchTuning = _resolveWebBatchTuning(url: url, params: params);
 
     Object? lastError;
     Map<String, String> lastRuntimeHints = const <String, String>{};
@@ -838,8 +860,12 @@ class WebGpuLlamaBackend
             nThreadsBatch: params.numberOfThreadsBatch > 0
                 ? params.numberOfThreadsBatch
                 : null,
-            nBatch: params.batchSize > 0 ? params.batchSize : null,
-            nUbatch: params.microBatchSize > 0 ? params.microBatchSize : null,
+            nBatch: params.batchSize > 0
+                ? params.batchSize
+                : batchTuning.nBatch,
+            nUbatch: params.microBatchSize > 0
+                ? params.microBatchSize
+                : batchTuning.nUbatch,
             nGpuLayers: attempt.gpuLayers,
             useCache: true,
             forceRemoteFetchBackend: forceRemoteFetchBackend,
@@ -1288,6 +1314,9 @@ class WebGpuLlamaBackend
     final hasStopSequences = params.stopSequences.any(
       (stop) => stop.isNotEmpty,
     );
+    final tokenEventFlushMs = hasStopSequences
+        ? 0
+        : (mediaParts == null ? 20 : 12);
 
     final onToken = (JSAny? piece, JSAny? currentText) {
       if (hasStopSequences &&
@@ -1352,7 +1381,7 @@ class WebGpuLlamaBackend
       onToken: onToken as JSFunction,
       emitCurrentTextOnToken: hasStopSequences,
       tokenEventEncoding: 'text',
-      tokenEventFlushMs: hasStopSequences ? 0 : 12,
+      tokenEventFlushMs: tokenEventFlushMs,
       parts: mediaParts,
       signal: _abortController?.signal,
     );
