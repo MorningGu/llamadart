@@ -302,6 +302,8 @@ _(Add screenshots here when complete)_
   `window.__llamadartBridgeBootstrapVerbose = true` before bridge bootstrap.
 - Runtime status chips expose execution mode/core/cache/worker fallback/runtime notes,
   so non-COI or worker fallback perf constraints are visible in-app.
+- On web, multimodal projector loading is eager by default for stability: if an
+  mmproj is configured, it is loaded together with the model.
 
 ### Hugging Face static deployment (CI)
 

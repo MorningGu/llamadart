@@ -37,8 +37,9 @@ class GenerationStreamResult {
 class ChatGenerationService {
   const ChatGenerationService();
 
-  static const int _streamRevealIntervalMs = 14;
+  static const int _streamRevealIntervalMs = 20;
   static const int _streamFlushBudgetMs = 220;
+  static const int _tokenDeltaFlushBatchSize = 8;
 
   GenerationParams buildParams(ChatSettings settings) {
     return GenerationParams(
@@ -69,6 +70,7 @@ class ChatGenerationService {
     required String Function(String) cleanResponse,
     required bool Function() shouldContinue,
     required void Function(GenerationStreamUpdate update) onUpdate,
+    Duration? stallTimeout,
   }) async {
     final stopwatch = Stopwatch()..start();
 
@@ -88,11 +90,9 @@ class ChatGenerationService {
     var lastNotifiedThinking = '';
     var streamCompleted = false;
     var streamCancelled = false;
+    var pendingTokenDelta = 0;
 
-    void emitUpdate({
-      required int generatedTokenDelta,
-      bool forceNotify = false,
-    }) {
+    void emitUpdate({bool forceNotify = false, bool flushTokenDelta = false}) {
       final now = DateTime.now();
       final hasVisibleDelta =
           visibleCleanText != lastNotifiedCleanText ||
@@ -105,7 +105,14 @@ class ChatGenerationService {
                   now.difference(lastUpdateAt).inMilliseconds >=
                       effectiveNotifyIntervalMs));
 
-      if (!shouldNotify && generatedTokenDelta == 0) {
+      final shouldFlushTokenDelta =
+          pendingTokenDelta > 0 &&
+          (forceNotify ||
+              flushTokenDelta ||
+              shouldNotify ||
+              pendingTokenDelta >= _tokenDeltaFlushBatchSize);
+
+      if (!shouldNotify && !shouldFlushTokenDelta) {
         return;
       }
 
@@ -113,6 +120,11 @@ class ChatGenerationService {
         lastUpdateAt = now;
         lastNotifiedCleanText = visibleCleanText;
         lastNotifiedThinking = fullThinking;
+      }
+
+      final generatedTokenDelta = shouldFlushTokenDelta ? pendingTokenDelta : 0;
+      if (shouldFlushTokenDelta) {
+        pendingTokenDelta = 0;
       }
 
       onUpdate(
@@ -140,7 +152,7 @@ class ChatGenerationService {
       }
 
       visibleCleanText = nextVisible;
-      emitUpdate(generatedTokenDelta: 0);
+      emitUpdate();
     }
 
     final revealTicker =
@@ -155,7 +167,21 @@ class ChatGenerationService {
         });
 
     try {
-      await for (final chunk in stream) {
+      final effectiveStream = stallTimeout == null
+          ? stream
+          : stream.timeout(
+              stallTimeout,
+              onTimeout: (sink) {
+                sink.addError(
+                  TimeoutException(
+                    'Generation stalled waiting for output.',
+                    stallTimeout,
+                  ),
+                );
+              },
+            );
+
+      await for (final chunk in effectiveStream) {
         if (!shouldContinue()) {
           streamCancelled = true;
           break;
@@ -178,6 +204,7 @@ class ChatGenerationService {
             .replaceAll(r'\n', '\n')
             .replaceAll(r'\r', '\r');
         generatedTokens++;
+        pendingTokenDelta += 1;
 
         cleanTarget = cleanResponse(fullResponse);
         visibleCleanText = _advanceVisibleText(
@@ -185,7 +212,7 @@ class ChatGenerationService {
           targetText: cleanTarget,
         );
 
-        emitUpdate(generatedTokenDelta: 1);
+        emitUpdate();
       }
 
       streamCompleted = true;
@@ -209,10 +236,12 @@ class ChatGenerationService {
       if (!streamCancelled) {
         if (visibleCleanText != cleanTarget) {
           visibleCleanText = cleanTarget;
-          emitUpdate(generatedTokenDelta: 0, forceNotify: true);
+          emitUpdate(forceNotify: true, flushTokenDelta: true);
         } else if (visibleCleanText != lastNotifiedCleanText ||
             fullThinking != lastNotifiedThinking) {
-          emitUpdate(generatedTokenDelta: 0, forceNotify: true);
+          emitUpdate(forceNotify: true, flushTokenDelta: true);
+        } else if (pendingTokenDelta > 0) {
+          emitUpdate(flushTokenDelta: true);
         }
       }
     } finally {
@@ -287,14 +316,14 @@ class ChatGenerationService {
       return backlog;
     }
     if (backlog <= 48) {
-      return 2;
+      return 3;
     }
     if (backlog <= 160) {
-      return 4;
+      return 6;
     }
     if (backlog <= 360) {
-      return 8;
+      return 12;
     }
-    return 12;
+    return 18;
   }
 }

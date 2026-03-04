@@ -156,6 +156,9 @@ class WebGpuLlamaBackend
     final coreModuleUrlMem64 = _getGlobalString(
       '__llamadartBridgeCoreModuleUrlMem64',
     );
+    final wasmUrl =
+        _bridgeWasmUrl ?? _getGlobalString('__llamadartBridgeWasmUrl');
+    final wasmUrlMem64 = _getGlobalString('__llamadartBridgeWasmUrlMem64');
     final workerModuleUrl =
         _bridgeWorkerUrl ?? _getGlobalString('__llamadartBridgeWorkerUrl');
     final preferMemory64 =
@@ -171,8 +174,8 @@ class WebGpuLlamaBackend
         true;
 
     return WebGpuBridgeConfig(
-      wasmUrl: _bridgeWasmUrl?.toJS,
-      wasmUrlMem64: _getGlobalString('__llamadartBridgeWasmUrlMem64')?.toJS,
+      wasmUrl: wasmUrl?.toJS,
+      wasmUrlMem64: wasmUrlMem64?.toJS,
       workerUrl: workerModuleUrl?.toJS,
       coreModuleUrl: coreModuleUrl?.toJS,
       coreModuleUrlMem64: coreModuleUrlMem64?.toJS,

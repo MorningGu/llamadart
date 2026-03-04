@@ -49,6 +49,42 @@
 </head>
 <body>
   <script type="module">
+    async function clearFlutterServiceWorkerCaches() {
+      if (typeof window === 'undefined') {
+        return;
+      }
+
+      if ('serviceWorker' in navigator) {
+        try {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          await Promise.allSettled(
+            registrations.map((registration) => registration.unregister()),
+          );
+        } catch (_) {
+          // best-effort cleanup only
+        }
+      }
+
+      if ('caches' in window) {
+        try {
+          const keys = await caches.keys();
+          const flutterLikeKeys = keys.filter((key) =>
+            key.startsWith('flutter-') ||
+            key.startsWith('workbox-') ||
+            key.includes('flutter-app-cache') ||
+            key.includes('llamadart-webgpu')
+          );
+          await Promise.allSettled(
+            flutterLikeKeys.map((key) => caches.delete(key)),
+          );
+        } catch (_) {
+          // best-effort cleanup only
+        }
+      }
+    }
+
+    await clearFlutterServiceWorkerCaches();
+
     const configuredRepo = window.__llamadartBridgeAssetsRepo;
     const configuredTag = window.__llamadartBridgeAssetsTag;
     const bridgeBootstrapVerbose =
@@ -106,13 +142,18 @@
 
     async function resolveCoreModuleUrl(moduleUrl) {
       const bridgeUrl = new URL(moduleUrl, window.location.href);
-      const coreUrl = new URL('./llama_webgpu_core.js', bridgeUrl).toString();
+      const coreUrl = new URL('./llama_webgpu_core.js', bridgeUrl);
+      const version = bridgeUrl.searchParams.get('v');
+      if (version != null && version.length > 0) {
+        coreUrl.searchParams.set('v', version);
+      }
+      const coreUrlString = coreUrl.toString();
       if (!isSafariBrowser()) {
-        window.__llamadartBridgeCoreModuleUrl = coreUrl;
-        return coreUrl;
+        window.__llamadartBridgeCoreModuleUrl = coreUrlString;
+        return coreUrlString;
       }
 
-      const response = await fetch(coreUrl);
+      const response = await fetch(coreUrlString);
       if (!response.ok) {
         throw new Error(
           `Failed to fetch bridge core for Safari patch: ${response.status} ${response.statusText}`,
@@ -123,8 +164,8 @@
       const patchedSource = patchCoreForSafari(originalSource);
 
       if (patchedSource === originalSource) {
-        window.__llamadartBridgeCoreModuleUrl = coreUrl;
-        return coreUrl;
+        window.__llamadartBridgeCoreModuleUrl = coreUrlString;
+        return coreUrlString;
       }
 
       if (patchedCoreBlobUrl) {
@@ -139,6 +180,19 @@
       return patchedCoreBlobUrl;
     }
 
+    function deriveCoreWasmUrl(moduleUrl, memory64 = false) {
+      try {
+        const url = new URL(moduleUrl, window.location.href);
+        url.pathname = url.pathname.replace(
+          /\/llama_webgpu_bridge\.js$/,
+          memory64 ? '/llama_webgpu_core_mem64.wasm' : '/llama_webgpu_core.wasm',
+        );
+        return url.toString();
+      } catch (_) {
+        return null;
+      }
+    }
+
     const bridgeAssetsRepo =
       typeof configuredRepo === 'string' && configuredRepo.length > 0
         ? configuredRepo
@@ -147,7 +201,8 @@
       typeof configuredTag === 'string' && configuredTag.length > 0
         ? configuredTag
         : 'v0.1.7';
-    const localBridgeVersion = 'v0.1.7-local-20260303b';
+    const localBridgeVersion = 'v0.1.7-local-20260304p';
+    window.__llamadartBridgeLocalVersion = localBridgeVersion;
 
     const localBridgeUrl = `./webgpu_bridge/llama_webgpu_bridge.js?v=${localBridgeVersion}`;
     const cdnBridgeUrl = `https://cdn.jsdelivr.net/gh/${bridgeAssetsRepo}@${bridgeAssetsTag}/llama_webgpu_bridge.js`;
@@ -191,6 +246,8 @@
         ? deriveWorkerModuleUrl(moduleUrl)
         : null;
       const coreModuleUrlMem64 = deriveMem64CoreModuleUrl(moduleUrl);
+      const wasmUrl = deriveCoreWasmUrl(moduleUrl);
+      const wasmUrlMem64 = deriveCoreWasmUrl(moduleUrl, true);
       const preferMemory64 = window.__llamadartBridgeEnableMem64 === true;
 
       window.LlamaWebGpuBridge = mod.LlamaWebGpuBridge;
@@ -200,6 +257,8 @@
       window.__llamadartBridgeModuleUrl = moduleUrl;
       window.__llamadartBridgeCoreModuleUrl = coreModuleUrl;
       window.__llamadartBridgeCoreModuleUrlMem64 = coreModuleUrlMem64;
+      window.__llamadartBridgeWasmUrl = wasmUrl;
+      window.__llamadartBridgeWasmUrlMem64 = wasmUrlMem64;
       window.__llamadartBridgeWorkerUrl = workerModuleUrl;
       window.__llamadartBridgePreferMemory64 = preferMemory64;
       window.__llamadartBridgeWorkerFallbackReason = null;

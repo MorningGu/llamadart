@@ -20,6 +20,14 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
+  static const List<String> _emojiFontFallback = <String>[
+    'Noto Color Emoji',
+    'Apple Color Emoji',
+    'Segoe UI Emoji',
+    'Segoe UI Symbol',
+    'EmojiOne Color',
+  ];
+
   late final AppLifecycleListener _listener;
   final ChatProvider _chatProvider = ChatProvider();
 
@@ -58,6 +66,7 @@ class _MyAppState extends State<MyApp> {
             brightness: Brightness.light,
           ),
           useMaterial3: true,
+          fontFamilyFallback: _emojiFontFallback,
           textTheme: GoogleFonts.manropeTextTheme(),
           appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
         ),
@@ -68,6 +77,7 @@ class _MyAppState extends State<MyApp> {
             surface: const Color(0xFF0B101A),
           ),
           useMaterial3: true,
+          fontFamilyFallback: _emojiFontFallback,
           textTheme: GoogleFonts.manropeTextTheme(ThemeData.dark().textTheme),
           appBarTheme: const AppBarTheme(
             centerTitle: true,

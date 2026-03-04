@@ -30,6 +30,8 @@ void main() {
       globalContext.delete('__llamadartBridgeAssetSource'.toJS);
       globalContext.delete('__llamadartBridgeModuleUrl'.toJS);
       globalContext.delete('__llamadartBridgeCoreModuleUrl'.toJS);
+      globalContext.delete('__llamadartBridgeWasmUrl'.toJS);
+      globalContext.delete('__llamadartBridgeWasmUrlMem64'.toJS);
       globalContext.delete('__llamadartBridgeUserAgent'.toJS);
       globalContext.delete('__llamadartAllowSafariWebGpu'.toJS);
       globalContext.delete('__llamadartBridgeAdaptiveSafariGpu'.toJS);
@@ -387,6 +389,36 @@ void main() {
       final threadPoolSize = config!.getProperty('threadPoolSize'.toJS);
       expect(threadPoolSize.isA<JSNumber>(), isTrue);
       expect((threadPoolSize as JSNumber).toDartInt, 2);
+    });
+
+    test('passes global wasm URLs to bridge config', () async {
+      globalContext.setProperty(
+        '__llamadartBridgeWasmUrl'.toJS,
+        'https://example.com/core.wasm?v=1'.toJS,
+      );
+      globalContext.setProperty(
+        '__llamadartBridgeWasmUrlMem64'.toJS,
+        'https://example.com/core_mem64.wasm?v=1'.toJS,
+      );
+
+      await backend.modelLoadFromUrl(
+        'https://example.com/model.gguf',
+        const ModelParams(),
+      );
+
+      final config = lastBridgeConfig as JSObject?;
+      expect(config, isNotNull);
+
+      final wasmUrl = config!.getProperty('wasmUrl'.toJS);
+      expect(wasmUrl.isA<JSString>(), isTrue);
+      expect((wasmUrl as JSString).toDart, 'https://example.com/core.wasm?v=1');
+
+      final wasmUrlMem64 = config.getProperty('wasmUrlMem64'.toJS);
+      expect(wasmUrlMem64.isA<JSString>(), isTrue);
+      expect(
+        (wasmUrlMem64 as JSString).toDart,
+        'https://example.com/core_mem64.wasm?v=1',
+      );
     });
 
     test('propagates runtime log level updates to bridge', () async {
