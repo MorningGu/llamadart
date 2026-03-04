@@ -94,6 +94,7 @@ class ChatProvider extends ChangeNotifier {
   int? _lastFirstTokenLatencyMs;
   int? _lastGenerationLatencyMs;
   double? _lastTokensPerSecond;
+  double? _lastDecodeTokensPerSecond;
 
   List<String> _availableDevices = [];
 
@@ -147,6 +148,7 @@ class ChatProvider extends ChangeNotifier {
   int? get lastFirstTokenLatencyMs => _lastFirstTokenLatencyMs;
   int? get lastGenerationLatencyMs => _lastGenerationLatencyMs;
   double? get lastTokensPerSecond => _lastTokensPerSecond;
+  double? get lastDecodeTokensPerSecond => _lastDecodeTokensPerSecond;
   bool get hasConfiguredMmproj =>
       (_settings.mmprojPath ?? '').trim().isNotEmpty;
   bool get canAttachMedia =>
@@ -647,6 +649,7 @@ class ChatProvider extends ChangeNotifier {
     _isGenerating = false;
     _stagedParts.clear();
     _lastTokensPerSecond = null;
+    _lastDecodeTokensPerSecond = null;
     _messages.add(
       ChatMessage(
         text: 'Conversation cleared. Ready for a new topic!',
@@ -859,6 +862,7 @@ class ChatProvider extends ChangeNotifier {
       generatedTokens: 0,
       firstTokenLatencyMs: null,
       elapsedMs: 0,
+      decodeElapsedMs: 0,
     );
     _lastFirstTokenLatencyMs = null;
     final toolsForTurn = _toolsForTurn();
@@ -898,7 +902,7 @@ class ChatProvider extends ChangeNotifier {
               chatTemplateKwargs: templateKwargs,
             ),
             thinkingEnabled: _settings.thinkingEnabled,
-            uiNotifyIntervalMs: kIsWeb ? 56 : 16,
+            uiNotifyIntervalMs: 16,
             cleanResponse: (response) => response,
             shouldContinue: () => _isGenerating,
             stallTimeout: streamStallTimeout,
@@ -1045,10 +1049,17 @@ class ChatProvider extends ChangeNotifier {
     } finally {
       final generatedTokens = generationResult.generatedTokens;
       final elapsedMs = generationResult.elapsedMs;
+      final decodeElapsedMs = generationResult.decodeElapsedMs;
       if (generatedTokens > 0 && elapsedMs > 0) {
         _lastTokensPerSecond = generatedTokens / (elapsedMs / 1000);
       } else {
         _lastTokensPerSecond = null;
+      }
+
+      if (generatedTokens > 0 && decodeElapsedMs > 0) {
+        _lastDecodeTokensPerSecond = generatedTokens / (decodeElapsedMs / 1000);
+      } else {
+        _lastDecodeTokensPerSecond = null;
       }
 
       if (generationResult.firstTokenLatencyMs != null ||

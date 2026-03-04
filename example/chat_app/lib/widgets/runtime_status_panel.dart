@@ -17,6 +17,7 @@ class RuntimeStatusPanel extends StatelessWidget {
         int,
         int,
         double?,
+        double?,
         int?,
         int?,
         int?,
@@ -37,6 +38,7 @@ class RuntimeStatusPanel extends StatelessWidget {
         provider.currentTokens,
         provider.contextLimit,
         provider.lastTokensPerSecond,
+        provider.lastDecodeTokensPerSecond,
         provider.lastFirstTokenLatencyMs,
         provider.lastGenerationLatencyMs,
         provider.runtimeGpuLayers,
@@ -57,6 +59,7 @@ class RuntimeStatusPanel extends StatelessWidget {
           currentTokens,
           contextLimit,
           tokensPerSecond,
+          decodeTokensPerSecond,
           firstTokenLatencyMs,
           generationLatencyMs,
           runtimeGpuLayers,
@@ -95,7 +98,14 @@ class RuntimeStatusPanel extends StatelessWidget {
                 _chip(
                   context,
                   icon: Icons.speed_rounded,
-                  text: '${tokensPerSecond.toStringAsFixed(1)} tok/s',
+                  text: 'avg ${tokensPerSecond.toStringAsFixed(1)} tok/s',
+                ),
+              if (decodeTokensPerSecond != null)
+                _chip(
+                  context,
+                  icon: Icons.rocket_launch_rounded,
+                  text:
+                      'decode ${decodeTokensPerSecond.toStringAsFixed(1)} tok/s',
                 ),
               if (firstTokenLatencyMs != null)
                 _chip(

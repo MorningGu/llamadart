@@ -24,6 +24,7 @@ class GenerationStreamResult {
   final int generatedTokens;
   final int? firstTokenLatencyMs;
   final int elapsedMs;
+  final int decodeElapsedMs;
 
   const GenerationStreamResult({
     required this.fullResponse,
@@ -31,13 +32,14 @@ class GenerationStreamResult {
     required this.generatedTokens,
     required this.firstTokenLatencyMs,
     required this.elapsedMs,
+    required this.decodeElapsedMs,
   });
 }
 
 class ChatGenerationService {
   const ChatGenerationService();
 
-  static const int _streamRevealIntervalMs = 20;
+  static const int _streamRevealIntervalMs = 16;
   static const int _streamFlushBudgetMs = 220;
   static const int _tokenDeltaFlushBatchSize = 8;
 
@@ -91,6 +93,7 @@ class ChatGenerationService {
     var streamCompleted = false;
     var streamCancelled = false;
     var pendingTokenDelta = 0;
+    var streamElapsedMs = 0;
 
     void emitUpdate({bool forceNotify = false, bool flushTokenDelta = false}) {
       final now = DateTime.now();
@@ -216,6 +219,7 @@ class ChatGenerationService {
       }
 
       streamCompleted = true;
+      streamElapsedMs = stopwatch.elapsedMilliseconds;
 
       if (!streamCancelled && visibleCleanText != cleanTarget) {
         final flushDeadline = DateTime.now().add(
@@ -249,12 +253,21 @@ class ChatGenerationService {
     }
 
     stopwatch.stop();
+    if (streamElapsedMs <= 0) {
+      streamElapsedMs = stopwatch.elapsedMilliseconds;
+    }
+    final safeFirstTokenLatencyMs = firstTokenLatencyMs ?? 0;
+    final decodeElapsedMs = streamElapsedMs > safeFirstTokenLatencyMs
+        ? streamElapsedMs - safeFirstTokenLatencyMs
+        : 0;
+
     return GenerationStreamResult(
       fullResponse: fullResponse,
       fullThinking: fullThinking,
       generatedTokens: generatedTokens,
       firstTokenLatencyMs: firstTokenLatencyMs,
-      elapsedMs: stopwatch.elapsedMilliseconds,
+      elapsedMs: streamElapsedMs,
+      decodeElapsedMs: decodeElapsedMs,
     );
   }
 
@@ -312,18 +325,6 @@ class ChatGenerationService {
   }
 
   int _revealStepForBacklog(int backlog) {
-    if (backlog <= 12) {
-      return backlog;
-    }
-    if (backlog <= 48) {
-      return 3;
-    }
-    if (backlog <= 160) {
-      return 6;
-    }
-    if (backlog <= 360) {
-      return 12;
-    }
-    return 18;
+    return backlog > 0 ? 1 : 0;
   }
 }

@@ -835,6 +835,11 @@ class WebGpuLlamaBackend
           WebGpuLoadModelOptions(
             nCtx: attempt.contextSize,
             nThreads: attemptThreads,
+            nThreadsBatch: params.numberOfThreadsBatch > 0
+                ? params.numberOfThreadsBatch
+                : null,
+            nBatch: params.batchSize > 0 ? params.batchSize : null,
+            nUbatch: params.microBatchSize > 0 ? params.microBatchSize : null,
             nGpuLayers: attempt.gpuLayers,
             useCache: true,
             forceRemoteFetchBackend: forceRemoteFetchBackend,
@@ -1122,6 +1127,10 @@ class WebGpuLlamaBackend
       return const <int>[];
     }
 
+    if (piece.isA<JSString>()) {
+      return utf8.encode((piece as JSString).toDart);
+    }
+
     if (piece.isA<JSUint8Array>()) {
       return (piece as JSUint8Array).toDart;
     }
@@ -1342,6 +1351,8 @@ class WebGpuLlamaBackend
       grammar: params.grammar,
       onToken: onToken as JSFunction,
       emitCurrentTextOnToken: hasStopSequences,
+      tokenEventEncoding: 'text',
+      tokenEventFlushMs: hasStopSequences ? 0 : 12,
       parts: mediaParts,
       signal: _abortController?.signal,
     );

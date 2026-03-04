@@ -21,8 +21,13 @@ void main() {
     late bool sawAudioParts;
     late bool sawAudioBytes;
     int? lastRequestedGpuLayers;
+    int? lastRequestedThreadsBatch;
+    int? lastRequestedBatchSize;
+    int? lastRequestedMicroBatchSize;
     int? lastBridgeLogLevel;
     bool? lastEmitCurrentTextOnToken;
+    String? lastTokenEventEncoding;
+    int? lastTokenEventFlushMs;
     WebGpuBridgeConfig? lastBridgeConfig;
 
     void clearBridgeGlobals() {
@@ -49,8 +54,13 @@ void main() {
       sawAudioParts = false;
       sawAudioBytes = false;
       lastRequestedGpuLayers = null;
+      lastRequestedThreadsBatch = null;
+      lastRequestedBatchSize = null;
+      lastRequestedMicroBatchSize = null;
       lastBridgeLogLevel = null;
       lastEmitCurrentTextOnToken = null;
+      lastTokenEventEncoding = null;
+      lastTokenEventFlushMs = null;
       lastBridgeConfig = null;
 
       bridge.setProperty(
@@ -60,6 +70,21 @@ void main() {
             final nGpuLayers = config.getProperty('nGpuLayers'.toJS);
             if (nGpuLayers.isA<JSNumber>()) {
               lastRequestedGpuLayers = (nGpuLayers as JSNumber).toDartInt;
+            }
+
+            final nThreadsBatch = config.getProperty('nThreadsBatch'.toJS);
+            if (nThreadsBatch.isA<JSNumber>()) {
+              lastRequestedThreadsBatch = (nThreadsBatch as JSNumber).toDartInt;
+            }
+
+            final nBatch = config.getProperty('nBatch'.toJS);
+            if (nBatch.isA<JSNumber>()) {
+              lastRequestedBatchSize = (nBatch as JSNumber).toDartInt;
+            }
+
+            final nUbatch = config.getProperty('nUbatch'.toJS);
+            if (nUbatch.isA<JSNumber>()) {
+              lastRequestedMicroBatchSize = (nUbatch as JSNumber).toDartInt;
             }
           }
 
@@ -76,6 +101,21 @@ void main() {
           if (emitCurrentTextRaw.isA<JSBoolean>()) {
             lastEmitCurrentTextOnToken =
                 (emitCurrentTextRaw as JSBoolean).toDart;
+          }
+
+          final tokenEventEncodingRaw = opts.getProperty(
+            'tokenEventEncoding'.toJS,
+          );
+          if (tokenEventEncodingRaw.isA<JSString>()) {
+            lastTokenEventEncoding = (tokenEventEncodingRaw as JSString).toDart;
+          }
+
+          final tokenEventFlushMsRaw = opts.getProperty(
+            'tokenEventFlushMs'.toJS,
+          );
+          if (tokenEventFlushMsRaw.isA<JSNumber>()) {
+            lastTokenEventFlushMs =
+                (tokenEventFlushMsRaw as JSNumber).toDartInt;
           }
 
           final parts = opts.getProperty('parts'.toJS);
@@ -105,9 +145,7 @@ void main() {
 
           final onToken = opts.getProperty('onToken'.toJS) as JSFunction?;
           if (onToken != null) {
-            final piece = JSUint8Array.withLength(5);
-            piece.toDart.setAll(0, <int>[72, 101, 108, 108, 111]);
-            onToken.callAsFunction(null, piece, 'Hello'.toJS);
+            onToken.callAsFunction(null, 'Hello'.toJS, 'Hello'.toJS);
           }
           return Future<void>.value().toJS;
         }).toJS,
@@ -251,6 +289,21 @@ void main() {
       expect(await backend.getContextSize(1), 4096);
     });
 
+    test('forwards batch threading and batching model params', () async {
+      await backend.modelLoadFromUrl(
+        'https://example.com/model.gguf',
+        const ModelParams(
+          numberOfThreadsBatch: 3,
+          batchSize: 768,
+          microBatchSize: 384,
+        ),
+      );
+
+      expect(lastRequestedThreadsBatch, 3);
+      expect(lastRequestedBatchSize, 768);
+      expect(lastRequestedMicroBatchSize, 384);
+    });
+
     test('streams generated tokens from bridge callback', () async {
       await backend.modelLoadFromUrl(
         'https://example.com/model.gguf',
@@ -264,6 +317,8 @@ void main() {
       expect(chunks, isNotEmpty);
       expect(chunks.first, <int>[72, 101, 108, 108, 111]);
       expect(lastEmitCurrentTextOnToken, isFalse);
+      expect(lastTokenEventEncoding, 'text');
+      expect(lastTokenEventFlushMs, 12);
     });
 
     test('generates embedding vector from bridge', () async {
@@ -575,6 +630,21 @@ void main() {
                 (emitCurrentTextRaw as JSBoolean).toDart;
           }
 
+          final tokenEventEncodingRaw = opts.getProperty(
+            'tokenEventEncoding'.toJS,
+          );
+          if (tokenEventEncodingRaw.isA<JSString>()) {
+            lastTokenEventEncoding = (tokenEventEncodingRaw as JSString).toDart;
+          }
+
+          final tokenEventFlushMsRaw = opts.getProperty(
+            'tokenEventFlushMs'.toJS,
+          );
+          if (tokenEventFlushMsRaw.isA<JSNumber>()) {
+            lastTokenEventFlushMs =
+                (tokenEventFlushMsRaw as JSNumber).toDartInt;
+          }
+
           final onToken = opts.getProperty('onToken'.toJS) as JSFunction?;
           if (onToken != null) {
             final firstPiece = JSUint8Array.withLength(2);
@@ -607,6 +677,8 @@ void main() {
       expect(output, 'hi');
       expect(output.contains('<|im_end|>'), isFalse);
       expect(lastEmitCurrentTextOnToken, isTrue);
+      expect(lastTokenEventEncoding, 'text');
+      expect(lastTokenEventFlushMs, 0);
     });
 
     test('throws when bridge load fails', () async {

@@ -121,6 +121,9 @@ extension type WebGpuLoadModelOptions._(JSObject _) implements JSObject {
   external factory WebGpuLoadModelOptions({
     @JS('nCtx') int? nCtx,
     @JS('nThreads') int? nThreads,
+    @JS('nThreadsBatch') int? nThreadsBatch,
+    @JS('nBatch') int? nBatch,
+    @JS('nUbatch') int? nUbatch,
     @JS('nGpuLayers') int? nGpuLayers,
     @JS('useCache') bool? useCache,
     @JS('forceRemoteFetchBackend') bool? forceRemoteFetchBackend,
@@ -159,6 +162,8 @@ extension type WebGpuCompletionOptions._(JSObject _) implements JSObject {
     String? grammar,
     @JS('onToken') JSFunction? onToken,
     @JS('emitCurrentTextOnToken') bool? emitCurrentTextOnToken,
+    @JS('tokenEventEncoding') String? tokenEventEncoding,
+    @JS('tokenEventFlushMs') int? tokenEventFlushMs,
     JSArray? parts,
     JSAny? signal,
   });
