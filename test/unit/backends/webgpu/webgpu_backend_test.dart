@@ -28,6 +28,7 @@ void main() {
     bool? lastEmitCurrentTextOnToken;
     String? lastTokenEventEncoding;
     int? lastTokenEventFlushMs;
+    int? lastTokenEventFlushChars;
     WebGpuBridgeConfig? lastBridgeConfig;
 
     void clearBridgeGlobals() {
@@ -61,6 +62,7 @@ void main() {
       lastEmitCurrentTextOnToken = null;
       lastTokenEventEncoding = null;
       lastTokenEventFlushMs = null;
+      lastTokenEventFlushChars = null;
       lastBridgeConfig = null;
 
       bridge.setProperty(
@@ -116,6 +118,14 @@ void main() {
           if (tokenEventFlushMsRaw.isA<JSNumber>()) {
             lastTokenEventFlushMs =
                 (tokenEventFlushMsRaw as JSNumber).toDartInt;
+          }
+
+          final tokenEventFlushCharsRaw = opts.getProperty(
+            'tokenEventFlushChars'.toJS,
+          );
+          if (tokenEventFlushCharsRaw.isA<JSNumber>()) {
+            lastTokenEventFlushChars =
+                (tokenEventFlushCharsRaw as JSNumber).toDartInt;
           }
 
           final parts = opts.getProperty('parts'.toJS);
@@ -328,7 +338,8 @@ void main() {
       expect(chunks.first, <int>[72, 101, 108, 108, 111]);
       expect(lastEmitCurrentTextOnToken, isFalse);
       expect(lastTokenEventEncoding, 'text');
-      expect(lastTokenEventFlushMs, 20);
+      expect(lastTokenEventFlushMs, 28);
+      expect(lastTokenEventFlushChars, 48);
     });
 
     test('generates embedding vector from bridge', () async {
@@ -655,6 +666,14 @@ void main() {
                 (tokenEventFlushMsRaw as JSNumber).toDartInt;
           }
 
+          final tokenEventFlushCharsRaw = opts.getProperty(
+            'tokenEventFlushChars'.toJS,
+          );
+          if (tokenEventFlushCharsRaw.isA<JSNumber>()) {
+            lastTokenEventFlushChars =
+                (tokenEventFlushCharsRaw as JSNumber).toDartInt;
+          }
+
           final onToken = opts.getProperty('onToken'.toJS) as JSFunction?;
           if (onToken != null) {
             final firstPiece = JSUint8Array.withLength(2);
@@ -689,6 +708,7 @@ void main() {
       expect(lastEmitCurrentTextOnToken, isTrue);
       expect(lastTokenEventEncoding, 'text');
       expect(lastTokenEventFlushMs, 0);
+      expect(lastTokenEventFlushChars, isNull);
     });
 
     test('throws when bridge load fails', () async {

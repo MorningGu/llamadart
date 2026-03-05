@@ -98,6 +98,7 @@ class ChatGenerationService {
     var streamElapsedMs = 0;
     var revealDelayMs = _streamRevealDelayMaxMs;
     var lastRevealAt = DateTime.fromMillisecondsSinceEpoch(0);
+    var punctuationPauseMs = 0;
 
     void emitUpdate({bool forceNotify = false, bool flushTokenDelta = false}) {
       final now = DateTime.now();
@@ -150,15 +151,20 @@ class ChatGenerationService {
         return;
       }
 
+      final previousVisibleText = visibleCleanText;
       final nextVisible = _advanceVisibleText(
-        currentText: visibleCleanText,
+        currentText: previousVisibleText,
         targetText: cleanTarget,
       );
-      if (nextVisible == visibleCleanText) {
+      if (nextVisible == previousVisibleText) {
         return;
       }
 
       visibleCleanText = nextVisible;
+      punctuationPauseMs = _punctuationPauseMsForTail(
+        visibleText: visibleCleanText,
+        targetText: cleanTarget,
+      );
       emitUpdate();
     }
 
@@ -185,7 +191,8 @@ class ChatGenerationService {
           final elapsedSinceLastReveal = now
               .difference(lastRevealAt)
               .inMilliseconds;
-          if (elapsedSinceLastReveal < revealDelayMs) {
+          final effectiveRevealDelay = revealDelayMs + punctuationPauseMs;
+          if (elapsedSinceLastReveal < effectiveRevealDelay) {
             return;
           }
 
@@ -237,6 +244,10 @@ class ChatGenerationService {
         if (visibleCleanText.isEmpty && cleanTarget.isNotEmpty) {
           visibleCleanText = _advanceVisibleText(
             currentText: visibleCleanText,
+            targetText: cleanTarget,
+          );
+          punctuationPauseMs = _punctuationPauseMsForTail(
+            visibleText: visibleCleanText,
             targetText: cleanTarget,
           );
           lastRevealAt = DateTime.now();
@@ -381,5 +392,29 @@ class ChatGenerationService {
     }
 
     return (currentMs - 2).clamp(targetMs, _streamRevealDelayMaxMs);
+  }
+
+  int _punctuationPauseMsForTail({
+    required String visibleText,
+    required String targetText,
+  }) {
+    if (visibleText.isEmpty || visibleText.length >= targetText.length) {
+      return 0;
+    }
+
+    final lastCodeUnit = visibleText.codeUnitAt(visibleText.length - 1);
+    if (lastCodeUnit == 10 || lastCodeUnit == 13) {
+      return 20;
+    }
+
+    if (lastCodeUnit == 46 || lastCodeUnit == 33 || lastCodeUnit == 63) {
+      return 18;
+    }
+
+    if (lastCodeUnit == 44 || lastCodeUnit == 59 || lastCodeUnit == 58) {
+      return 10;
+    }
+
+    return 0;
   }
 }

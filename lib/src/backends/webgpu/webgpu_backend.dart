@@ -1316,7 +1316,10 @@ class WebGpuLlamaBackend
     );
     final tokenEventFlushMs = hasStopSequences
         ? 0
-        : (mediaParts == null ? 20 : 12);
+        : (mediaParts == null ? 28 : 12);
+    final tokenEventFlushChars = hasStopSequences
+        ? null
+        : (mediaParts == null ? 48 : 24);
 
     final onToken = (JSAny? piece, JSAny? currentText) {
       if (hasStopSequences &&
@@ -1382,6 +1385,7 @@ class WebGpuLlamaBackend
       emitCurrentTextOnToken: hasStopSequences,
       tokenEventEncoding: 'text',
       tokenEventFlushMs: tokenEventFlushMs,
+      tokenEventFlushChars: tokenEventFlushChars,
       parts: mediaParts,
       signal: _abortController?.signal,
     );
