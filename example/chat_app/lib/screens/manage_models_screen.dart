@@ -950,6 +950,9 @@ class _ManageModelsScreenState extends State<ManageModelsScreen>
         final contextOptions = _buildContextSizeOptions(provider.contextSize);
         final hasModelPath =
             provider.modelPath != null && provider.modelPath!.isNotEmpty;
+        final hasMmprojPath = (provider.settings.mmprojPath ?? '')
+            .trim()
+            .isNotEmpty;
         final modelLabel = provider.activeModelName;
         final threadLabel = provider.numberOfThreads == 0
             ? '(auto detected)'
@@ -1365,6 +1368,14 @@ class _ManageModelsScreenState extends State<ManageModelsScreen>
                         spacing: 10,
                         runSpacing: 10,
                         children: [
+                          if (hasMmprojPath)
+                            OutlinedButton.icon(
+                              onPressed: provider.isInitializing
+                                  ? null
+                                  : provider.clearMmprojPath,
+                              icon: const Icon(Icons.visibility_off_outlined),
+                              label: const Text('Disable mmproj'),
+                            ),
                           if (provider.isLoaded)
                             FilledButton.tonalIcon(
                               onPressed: provider.isInitializing
@@ -1627,8 +1638,13 @@ class _ManageModelsScreenState extends State<ManageModelsScreen>
                   const SizedBox(height: 10),
                   DropdownButtonFormField<LlamaLogLevel>(
                     initialValue: provider.nativeLogLevel,
-                    decoration: const InputDecoration(
-                      labelText: 'Native log level',
+                    decoration: InputDecoration(
+                      labelText: kIsWeb
+                          ? 'Bridge/runtime log level'
+                          : 'Native log level',
+                      helperText: kIsWeb
+                          ? 'Applies to bridge/core logs. For startup diagnostics set window.__llamadartBridgeBootstrapVerbose = true; for pthread warnings align window.__llamadartBridgeThreadPoolSize.'
+                          : null,
                     ),
                     items: LlamaLogLevel.values
                         .map(

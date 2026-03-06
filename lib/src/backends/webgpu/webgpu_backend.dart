@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:web/web.dart';
 
@@ -22,7 +23,17 @@ class WebGpuLlamaBackend
     implements LlamaBackend, BackendAvailability, BackendBatchEmbeddings {
   static const Duration _bridgeReadyTimeout = Duration(seconds: 12);
   static const Duration _bridgePollInterval = Duration(milliseconds: 100);
-  static const int _remoteFetchChunkBytes = 256 * 1024;
+  static const int _defaultRemoteFetchChunkBytes = 4 * 1024 * 1024;
+  static const int _minRemoteFetchChunkBytes = 4 * 1024;
+  static const int _maxRemoteFetchChunkBytes = 16 * 1024 * 1024;
+  static const int _gpuMultimodalMaxImagePixels = 1048576;
+  static const int _gpuMultimodalMaxImageEdge = 1280;
+  static const Duration _webGpuMultimodalWarmupTimeout = Duration(seconds: 12);
+  static final Uint8List _webGpuWarmupRgbBytes = Uint8List.fromList(const <int>[
+    0,
+    0,
+    0,
+  ]);
 
   final String? _bridgeScriptUrl;
   final String? _bridgeWasmUrl;
@@ -37,6 +48,8 @@ class WebGpuLlamaBackend
   AbortController? _abortController;
   int? _lastNCtx;
   bool _mmContextActive = false;
+  bool _webGpuMultimodalWarmupDone = false;
+  bool _webGpuMultimodalWarmupAttempted = false;
   bool? _preferMemory64Override;
   bool? _forceRemoteFetchBackendOverride;
 
@@ -128,33 +141,25 @@ class WebGpuLlamaBackend
     logger.setProperty(
       'debug'.toJS,
       (JSAny? msg) {
-        if (_logLevel.index <= LlamaLogLevel.debug.index) {
-          console.debug(msg);
-        }
+        _emitConsole(LlamaLogLevel.debug, msg);
       }.toJS,
     );
     logger.setProperty(
       'log'.toJS,
       (JSAny? msg) {
-        if (_logLevel.index <= LlamaLogLevel.info.index) {
-          console.log(msg);
-        }
+        _emitConsole(LlamaLogLevel.info, msg);
       }.toJS,
     );
     logger.setProperty(
       'warn'.toJS,
       (JSAny? msg) {
-        if (_logLevel.index <= LlamaLogLevel.warn.index) {
-          console.warn(msg);
-        }
+        _emitConsole(LlamaLogLevel.warn, msg);
       }.toJS,
     );
     logger.setProperty(
       'error'.toJS,
       (JSAny? msg) {
-        if (_logLevel.index <= LlamaLogLevel.error.index) {
-          console.error(msg);
-        }
+        _emitConsole(LlamaLogLevel.error, msg);
       }.toJS,
     );
 
@@ -162,11 +167,17 @@ class WebGpuLlamaBackend
     final coreModuleUrlMem64 = _getGlobalString(
       '__llamadartBridgeCoreModuleUrlMem64',
     );
+    final wasmUrl =
+        _bridgeWasmUrl ?? _getGlobalString('__llamadartBridgeWasmUrl');
+    final wasmUrlMem64 = _getGlobalString('__llamadartBridgeWasmUrlMem64');
     final workerModuleUrl =
         _bridgeWorkerUrl ?? _getGlobalString('__llamadartBridgeWorkerUrl');
     final preferMemory64 =
         _preferMemory64Override ??
         _getGlobalOptionalBool('__llamadartBridgePreferMemory64');
+    final threadPoolSizeHint = _getGlobalPositiveInt(
+      '__llamadartBridgeThreadPoolSize',
+    );
     final allowAutoRemoteFetchBackend =
         _getGlobalOptionalBool(
           '__llamadartBridgeAllowAutoRemoteFetchBackend',
@@ -174,14 +185,15 @@ class WebGpuLlamaBackend
         true;
 
     return WebGpuBridgeConfig(
-      wasmUrl: _bridgeWasmUrl?.toJS,
-      wasmUrlMem64: _getGlobalString('__llamadartBridgeWasmUrlMem64')?.toJS,
+      wasmUrl: wasmUrl?.toJS,
+      wasmUrlMem64: wasmUrlMem64?.toJS,
       workerUrl: workerModuleUrl?.toJS,
       coreModuleUrl: coreModuleUrl?.toJS,
       coreModuleUrlMem64: coreModuleUrlMem64?.toJS,
       preferMemory64: preferMemory64,
+      threadPoolSize: threadPoolSizeHint,
       allowAutoRemoteFetchBackend: allowAutoRemoteFetchBackend,
-      remoteFetchChunkBytes: _remoteFetchChunkBytes,
+      remoteFetchChunkBytes: _resolveRemoteFetchChunkBytes(),
       logLevel: _logLevel.index,
       logger: logger,
     );
@@ -247,6 +259,12 @@ class WebGpuLlamaBackend
     _usingBridge = false;
     _isReady = false;
     _mmContextActive = false;
+    _resetWebGpuMultimodalWarmupState();
+  }
+
+  void _resetWebGpuMultimodalWarmupState() {
+    _webGpuMultimodalWarmupDone = false;
+    _webGpuMultimodalWarmupAttempted = false;
   }
 
   Future<void> _activateBridge() async {
@@ -263,6 +281,40 @@ class WebGpuLlamaBackend
 
     _usingBridge = true;
     _syncBridgeLogLevel();
+  }
+
+  bool _shouldEmitConsole(LlamaLogLevel level) {
+    if (_logLevel == LlamaLogLevel.none) {
+      return false;
+    }
+    return _logLevel.index <= level.index;
+  }
+
+  void _emitConsole(LlamaLogLevel level, JSAny? message) {
+    if (!_shouldEmitConsole(level)) {
+      return;
+    }
+
+    switch (level) {
+      case LlamaLogLevel.debug:
+        console.debug(message);
+        return;
+      case LlamaLogLevel.info:
+        console.log(message);
+        return;
+      case LlamaLogLevel.warn:
+        console.warn(message);
+        return;
+      case LlamaLogLevel.error:
+        console.error(message);
+        return;
+      case LlamaLogLevel.none:
+        return;
+    }
+  }
+
+  void _emitConsoleText(LlamaLogLevel level, String message) {
+    _emitConsole(level, message.toJS);
   }
 
   void _syncBridgeLogLevel() {
@@ -325,6 +377,30 @@ class WebGpuLlamaBackend
 
   String? _getBridgeLoadError() {
     return _getGlobalString('__llamadartBridgeLoadError');
+  }
+
+  int? _getGlobalPositiveInt(String propertyName) {
+    final raw = globalContext.getProperty(propertyName.toJS);
+    if (raw.isA<JSNumber>()) {
+      final value = (raw as JSNumber).toDartInt;
+      return value > 0 ? value : null;
+    }
+
+    final parsed = int.tryParse(raw.toString().trim());
+    if (parsed == null || parsed <= 0) {
+      return null;
+    }
+    return parsed;
+  }
+
+  int _resolveRemoteFetchChunkBytes() {
+    final override = _getGlobalPositiveInt(
+      '__llamadartBridgeRemoteFetchChunkBytes',
+    );
+    final chunkBytes = override ?? _defaultRemoteFetchChunkBytes;
+    return chunkBytes
+        .clamp(_minRemoteFetchChunkBytes, _maxRemoteFetchChunkBytes)
+        .toInt();
   }
 
   bool _getGlobalBool(String propertyName) {
@@ -507,6 +583,31 @@ class WebGpuLlamaBackend
     }
 
     return attempts;
+  }
+
+  ({int? nBatch, int? nUbatch}) _resolveWebBatchTuning({
+    required String url,
+    required ModelParams params,
+  }) {
+    if (params.batchSize > 0 || params.microBatchSize > 0) {
+      return (nBatch: null, nUbatch: null);
+    }
+
+    if (params.preferredBackend == GpuBackend.cpu || params.gpuLayers == 0) {
+      return (nBatch: null, nUbatch: null);
+    }
+
+    final normalizedUrl = url.toLowerCase();
+    final isQwen35Small =
+        normalizedUrl.contains('qwen3.5-0.8b') ||
+        normalizedUrl.contains('qwen_qwen3.5-0.8b');
+    if (!isQwen35Small) {
+      return (nBatch: null, nUbatch: null);
+    }
+
+    final tunedBatch = params.contextSize >= 4096 ? 768 : 512;
+    final tunedUbatch = tunedBatch >= 768 ? 256 : 192;
+    return (nBatch: tunedBatch, nUbatch: tunedUbatch);
   }
 
   Map<String, String> _collectBridgeRuntimeHints(LlamaWebGpuBridge bridge) {
@@ -700,11 +801,11 @@ class WebGpuLlamaBackend
         !_allowSafariWebGpu() &&
         !_bridgeSupportsAdaptiveSafariGpu()) {
       requestedGpuLayers = 0;
-      console.warn(
+      _emitConsoleText(
+        LlamaLogLevel.warn,
         'WebGpuLlamaBackend: Safari WebGPU generation is unstable for legacy bridge assets; forcing CPU fallback. '
-                'Use bridge assets with adaptive Safari GPU probe support, or set '
-                'window.__llamadartAllowSafariWebGpu = true to bypass this safeguard.'
-            .toJS,
+        'Use bridge assets with adaptive Safari GPU probe support, or set '
+        'window.__llamadartAllowSafariWebGpu = true to bypass this safeguard.',
       );
     }
 
@@ -734,6 +835,7 @@ class WebGpuLlamaBackend
       requestedContextSize: params.contextSize,
       requestedGpuLayers: requestedGpuLayers,
     );
+    final batchTuning = _resolveWebBatchTuning(url: url, params: params);
 
     Object? lastError;
     Map<String, String> lastRuntimeHints = const <String, String>{};
@@ -744,7 +846,7 @@ class WebGpuLlamaBackend
     var retriedAfterFsWriteFailureWithRemote = false;
     var remoteFetchBackendKnownUnstable = false;
     var wasm64InteropKnownBroken = false;
-    var remoteFetchChunkBytesOverride = _remoteFetchChunkBytes;
+    var remoteFetchChunkBytesOverride = _resolveRemoteFetchChunkBytes();
     for (var index = 0; index < loadAttempts.length; index += 1) {
       final attempt = loadAttempts[index];
       _lastNCtx = attempt.contextSize;
@@ -776,6 +878,15 @@ class WebGpuLlamaBackend
           WebGpuLoadModelOptions(
             nCtx: attempt.contextSize,
             nThreads: attemptThreads,
+            nThreadsBatch: params.numberOfThreadsBatch > 0
+                ? params.numberOfThreadsBatch
+                : null,
+            nBatch: params.batchSize > 0
+                ? params.batchSize
+                : batchTuning.nBatch,
+            nUbatch: params.microBatchSize > 0
+                ? params.microBatchSize
+                : batchTuning.nUbatch,
             nGpuLayers: attempt.gpuLayers,
             useCache: true,
             forceRemoteFetchBackend: forceRemoteFetchBackend,
@@ -789,16 +900,17 @@ class WebGpuLlamaBackend
         }
 
         if (index > 0) {
-          console.warn(
+          _emitConsoleText(
+            LlamaLogLevel.warn,
             'WebGpuLlamaBackend: model loaded after fallback '
-                    '(nCtx=${attempt.contextSize}, nGpuLayers=${attempt.gpuLayers}, '
-                    'nThreads=${attemptThreads ?? 'auto'})'
-                .toJS,
+            '(nCtx=${attempt.contextSize}, nGpuLayers=${attempt.gpuLayers}, '
+            'nThreads=${attemptThreads ?? 'auto'})',
           );
         }
 
         _isReady = true;
         _mmContextActive = false;
+        _resetWebGpuMultimodalWarmupState();
         return 1;
       } catch (e) {
         lastError = e;
@@ -812,10 +924,14 @@ class WebGpuLlamaBackend
         }
         lastRuntimeHints = runtimeHints;
 
-        console.error('WebGpuLlamaBackend: Bridge model load failed: $e'.toJS);
+        _emitConsoleText(
+          LlamaLogLevel.error,
+          'WebGpuLlamaBackend: Bridge model load failed: $e',
+        );
         if (runtimeHints.isNotEmpty) {
-          console.warn(
-            'WebGpuLlamaBackend: bridge runtime hints $runtimeHints'.toJS,
+          _emitConsoleText(
+            LlamaLogLevel.warn,
+            'WebGpuLlamaBackend: bridge runtime hints $runtimeHints',
           );
         }
 
@@ -862,7 +978,7 @@ class WebGpuLlamaBackend
             remoteFetchAborted &&
             forceRemoteFetchRequested &&
             !threadConstructorFailure &&
-            remoteFetchChunkBytesOverride > 4 * 1024;
+            remoteFetchChunkBytesOverride > _minRemoteFetchChunkBytes;
         final shouldRetryWithWasm32 =
             !retriedWithWasm32 &&
             coreVariant == 'wasm64' &&
@@ -886,17 +1002,17 @@ class WebGpuLlamaBackend
         if (shouldRetryWithSmallerRemoteFetchChunks) {
           remoteFetchChunkRetryCount += 1;
           remoteFetchChunkBytesOverride = math.max(
-            4 * 1024,
+            _minRemoteFetchChunkBytes,
             remoteFetchChunkBytesOverride ~/ 2,
           );
           _forceRemoteFetchBackendOverride = true;
           index = -1;
-          console.warn(
+          _emitConsoleText(
+            LlamaLogLevel.warn,
             'WebGpuLlamaBackend: fetch-backed model loading aborted; '
-                    'retrying with smaller fetch chunks '
-                    '(${remoteFetchChunkBytesOverride ~/ 1024} KiB, '
-                    'attempt #$remoteFetchChunkRetryCount).'
-                .toJS,
+            'retrying with smaller fetch chunks '
+            '(${remoteFetchChunkBytesOverride ~/ 1024} KiB, '
+            'attempt #$remoteFetchChunkRetryCount).',
           );
           continue;
         }
@@ -910,15 +1026,14 @@ class WebGpuLlamaBackend
           }
 
           index = -1;
-          console.warn(
+          _emitConsoleText(
+            LlamaLogLevel.warn,
             coreVariant == 'wasm32'
                 ? 'WebGpuLlamaBackend: fetch-backed model loading aborted on '
-                          'wasm32; retrying with wasm64 core and streamed '
-                          'network loading.'
-                      .toJS
+                      'wasm32; retrying with wasm64 core and streamed '
+                      'network loading.'
                 : 'WebGpuLlamaBackend: fetch-backed model loading aborted; '
-                          'retrying with streamed network loading.'
-                      .toJS,
+                      'retrying with streamed network loading.',
           );
           continue;
         }
@@ -931,10 +1046,10 @@ class WebGpuLlamaBackend
           _preferMemory64Override = false;
           _forceRemoteFetchBackendOverride = false;
           index = -1;
-          console.warn(
+          _emitConsoleText(
+            LlamaLogLevel.warn,
             'WebGpuLlamaBackend: wasm64 BigInt interop failure detected; '
-                    'retrying with wasm32 core.'
-                .toJS,
+            'retrying with wasm32 core.',
           );
           continue;
         }
@@ -947,15 +1062,14 @@ class WebGpuLlamaBackend
               ? false
               : true;
           index = -1;
-          console.warn(
+          _emitConsoleText(
+            LlamaLogLevel.warn,
             remoteFetchAttempted
                 ? 'WebGpuLlamaBackend: wasm32 memory pressure detected after '
-                          'fetch-backed loading; retrying with wasm64 core and '
-                          'streamed network loading.'
-                      .toJS
+                      'fetch-backed loading; retrying with wasm64 core and '
+                      'streamed network loading.'
                 : 'WebGpuLlamaBackend: wasm32 memory pressure detected; '
-                          'retrying with wasm64 core and fetch-backed loading.'
-                      .toJS,
+                      'retrying with wasm64 core and fetch-backed loading.',
           );
           continue;
         }
@@ -969,36 +1083,36 @@ class WebGpuLlamaBackend
               128 * 1024,
             );
             index = -1;
-            console.warn(
+            _emitConsoleText(
+              LlamaLogLevel.warn,
               'WebGpuLlamaBackend: wasm64 model staging failed; retrying '
-                      'with forced fetch-backed loading and '
-                      '${remoteFetchChunkBytesOverride ~/ 1024} KiB chunks.'
-                  .toJS,
+              'with forced fetch-backed loading and '
+              '${remoteFetchChunkBytesOverride ~/ 1024} KiB chunks.',
             );
             continue;
           }
 
-          console.warn(
+          _emitConsoleText(
+            LlamaLogLevel.warn,
             'WebGpuLlamaBackend: wasm64 model staging failed; skipping '
-                    'fallback ladder because additional nCtx/GPU/thread '
-                    'reductions are unlikely to recover FS write failures.'
-                .toJS,
+            'fallback ladder because additional nCtx/GPU/thread '
+            'reductions are unlikely to recover FS write failures.',
           );
         }
 
         if (canRetry) {
           final nextAttempt = loadAttempts[index + 1];
-          console.warn(
+          _emitConsoleText(
+            LlamaLogLevel.warn,
             'WebGpuLlamaBackend: retrying web model load with reduced '
-                    'settings (nCtx=${nextAttempt.contextSize}, '
-                    'nGpuLayers=${nextAttempt.gpuLayers}, '
-                    'nThreads=${switch (index + 1) {
-                          0 => requestedThreads,
-                          1 || 2 => requestedThreads == null ? 4 : math.min(requestedThreads, 4),
-                          3 || 4 || 5 || 6 => requestedThreads == null ? 2 : math.min(requestedThreads, 2),
-                          _ => 1,
-                        } ?? 'auto'})'
-                .toJS,
+            'settings (nCtx=${nextAttempt.contextSize}, '
+            'nGpuLayers=${nextAttempt.gpuLayers}, '
+            'nThreads=${switch (index + 1) {
+                  0 => requestedThreads,
+                  1 || 2 => requestedThreads == null ? 4 : math.min(requestedThreads, 4),
+                  3 || 4 || 5 || 6 => requestedThreads == null ? 2 : math.min(requestedThreads, 2),
+                  _ => 1,
+                } ?? 'auto'})',
           );
           continue;
         }
@@ -1059,6 +1173,10 @@ class WebGpuLlamaBackend
   List<int> _pieceToBytes(JSAny? piece) {
     if (piece == null) {
       return const <int>[];
+    }
+
+    if (piece.isA<JSString>()) {
+      return utf8.encode((piece as JSString).toDart);
     }
 
     if (piece.isA<JSUint8Array>()) {
@@ -1196,6 +1314,175 @@ class WebGpuLlamaBackend
     return index == 0 ? null : jsParts;
   }
 
+  bool _isCpuRuntimeForMultimodal(LlamaWebGpuBridge bridge) {
+    try {
+      final metadata = bridge.getModelMetadata();
+      if (metadata != null) {
+        final raw = metadata.getProperty('llamadart.webgpu.n_gpu_layers'.toJS);
+        final parsed = int.tryParse(_jsValueAsString(raw) ?? '');
+        if (parsed != null) {
+          return parsed == 0;
+        }
+      }
+    } catch (_) {
+      // Fall through to runtime GPU-active probe.
+    }
+
+    final gpuActive = bridge.isGpuActive();
+    if (gpuActive != null) {
+      return !gpuActive;
+    }
+
+    return false;
+  }
+
+  int? _parsePositiveMetadataInt(JSAny? value) {
+    final asText = _jsValueAsString(value);
+    if (asText == null) {
+      return null;
+    }
+
+    final normalized = asText.trim();
+    final asInt = int.tryParse(normalized);
+    if (asInt != null) {
+      return asInt > 0 ? asInt : null;
+    }
+
+    final asDouble = double.tryParse(normalized);
+    if (asDouble == null || !asDouble.isFinite) {
+      return null;
+    }
+
+    final rounded = asDouble.round();
+    return rounded > 0 ? rounded : null;
+  }
+
+  int? _resolveRuntimeThreadCountForMultimodal(LlamaWebGpuBridge bridge) {
+    final metadata = bridge.getModelMetadata();
+    if (metadata == null) {
+      return null;
+    }
+
+    final candidates = <String>[
+      'llamadart.webgpu.n_threads',
+      'llamadart.webgpu.thread_pool_size',
+      'llamadart.webgpu.n_threads_batch',
+    ];
+
+    for (final key in candidates) {
+      final parsed = _parsePositiveMetadataInt(metadata.getProperty(key.toJS));
+      if (parsed != null) {
+        return parsed;
+      }
+    }
+
+    return null;
+  }
+
+  ({int mediaMaxPredict, int mediaMaxImagePixels, int mediaMaxImageEdge})
+  _resolveCpuMultimodalLimits(
+    LlamaWebGpuBridge bridge,
+    GenerationParams params,
+  ) {
+    final runtimeThreads = _resolveRuntimeThreadCountForMultimodal(bridge) ?? 2;
+    final profile = switch (runtimeThreads) {
+      <= 1 => (
+        mediaMaxPredict: 128,
+        mediaMaxImagePixels: 196608,
+        mediaMaxImageEdge: 640,
+      ),
+      <= 2 => (
+        mediaMaxPredict: 160,
+        mediaMaxImagePixels: 262144,
+        mediaMaxImageEdge: 704,
+      ),
+      <= 4 => (
+        mediaMaxPredict: 192,
+        mediaMaxImagePixels: 307200,
+        mediaMaxImageEdge: 768,
+      ),
+      <= 6 => (
+        mediaMaxPredict: 224,
+        mediaMaxImagePixels: 393216,
+        mediaMaxImageEdge: 896,
+      ),
+      _ => (
+        mediaMaxPredict: 256,
+        mediaMaxImagePixels: 524288,
+        mediaMaxImageEdge: 1024,
+      ),
+    };
+
+    final requestedPredict = params.maxTokens > 0
+        ? params.maxTokens
+        : profile.mediaMaxPredict;
+
+    return (
+      mediaMaxPredict: math.max(
+        32,
+        math.min(requestedPredict, profile.mediaMaxPredict),
+      ),
+      mediaMaxImagePixels: profile.mediaMaxImagePixels,
+      mediaMaxImageEdge: profile.mediaMaxImageEdge,
+    );
+  }
+
+  JSArray _buildWebGpuWarmupParts() {
+    final part = JSObject();
+    part.setProperty('type'.toJS, 'image'.toJS);
+    part.setProperty('bytes'.toJS, _webGpuWarmupRgbBytes.toJS);
+    part.setProperty('width'.toJS, 1.toJS);
+    part.setProperty('height'.toJS, 1.toJS);
+
+    final parts = JSArray();
+    parts.setProperty(0.toJS, part);
+    return parts;
+  }
+
+  Future<void> _ensureWebGpuMultimodalWarmup(
+    LlamaWebGpuBridge bridge, {
+    required bool isCpuMultimodalRuntime,
+  }) async {
+    if (isCpuMultimodalRuntime || !_mmContextActive) {
+      return;
+    }
+    if (_webGpuMultimodalWarmupDone || _webGpuMultimodalWarmupAttempted) {
+      return;
+    }
+
+    _webGpuMultimodalWarmupAttempted = true;
+
+    final warmupOptions = WebGpuCompletionOptions(
+      nPredict: 1,
+      mediaMaxPredict: 1,
+      temp: 0.0,
+      topK: 1,
+      topP: 1.0,
+      penalty: 1.0,
+      seed: 1,
+      mediaMaxImagePixels: 65536,
+      mediaMaxImageEdge: 256,
+      warmup: true,
+      parts: _buildWebGpuWarmupParts(),
+    );
+
+    try {
+      await _toFuture(
+        bridge.createCompletion(
+          'Describe this image in one word.',
+          warmupOptions,
+        ),
+      ).timeout(_webGpuMultimodalWarmupTimeout);
+      _webGpuMultimodalWarmupDone = true;
+    } catch (error) {
+      _emitConsoleText(
+        LlamaLogLevel.debug,
+        'WebGpuLlamaBackend: multimodal warmup skipped after failure: '
+        '${_errorText(error)}',
+      );
+    }
+  }
+
   @override
   Stream<List<int>> generate(
     int contextHandle,
@@ -1211,13 +1498,38 @@ class WebGpuLlamaBackend
     }
 
     final bridge = _requireBridge();
+    final isCpuMultimodalRuntime =
+        mediaParts != null && _isCpuRuntimeForMultimodal(bridge);
+    final isGpuMultimodalRuntime =
+        mediaParts != null && !isCpuMultimodalRuntime;
+    final cpuMultimodalLimits = isCpuMultimodalRuntime
+        ? _resolveCpuMultimodalLimits(bridge, params)
+        : null;
+    final mediaMaxPredict = cpuMultimodalLimits?.mediaMaxPredict;
+    final mediaMaxImagePixels = isCpuMultimodalRuntime
+        ? cpuMultimodalLimits?.mediaMaxImagePixels
+        : (isGpuMultimodalRuntime ? _gpuMultimodalMaxImagePixels : null);
+    final mediaMaxImageEdge = isCpuMultimodalRuntime
+        ? cpuMultimodalLimits?.mediaMaxImageEdge
+        : (isGpuMultimodalRuntime ? _gpuMultimodalMaxImageEdge : null);
 
     final controller = StreamController<List<int>>();
     _abortController = AbortController();
     var emittedLength = 0;
+    final hasStopSequences = params.stopSequences.any(
+      (stop) => stop.isNotEmpty,
+    );
+    final tokenEventFlushMs = hasStopSequences
+        ? 0
+        : (mediaParts == null ? 28 : 12);
+    final tokenEventFlushChars = hasStopSequences
+        ? null
+        : (mediaParts == null ? 48 : 24);
 
     final onToken = (JSAny? piece, JSAny? currentText) {
-      if (currentText != null && currentText.isA<JSString>()) {
+      if (hasStopSequences &&
+          currentText != null &&
+          currentText.isA<JSString>()) {
         final fullText = (currentText as JSString).toDart;
         if (fullText.length < emittedLength) {
           emittedLength = 0;
@@ -1268,19 +1580,32 @@ class WebGpuLlamaBackend
 
     final options = WebGpuCompletionOptions(
       nPredict: params.maxTokens,
+      mediaMaxPredict: mediaMaxPredict,
       temp: params.temp,
       topK: params.topK,
       topP: params.topP,
       penalty: params.penalty,
       seed: params.seed ?? DateTime.now().millisecondsSinceEpoch,
       grammar: params.grammar,
+      mediaMaxImagePixels: mediaMaxImagePixels,
+      mediaMaxImageEdge: mediaMaxImageEdge,
       onToken: onToken as JSFunction,
+      emitCurrentTextOnToken: hasStopSequences,
+      tokenEventEncoding: 'text',
+      tokenEventFlushMs: tokenEventFlushMs,
+      tokenEventFlushChars: tokenEventFlushChars,
       parts: mediaParts,
       signal: _abortController?.signal,
     );
 
     Future<void>(() async {
       await Future<void>.delayed(Duration.zero);
+      if (mediaParts != null) {
+        await _ensureWebGpuMultimodalWarmup(
+          bridge,
+          isCpuMultimodalRuntime: isCpuMultimodalRuntime,
+        );
+      }
       final normalizedPrompt = _normalizePromptForBridge(prompt, bridge);
       final completion = bridge.createCompletion(normalizedPrompt, options);
       await _toFuture(completion);
@@ -1606,17 +1931,21 @@ class WebGpuLlamaBackend
   ) async {
     final bridge = _requireBridge();
     final result = await _toFuture(bridge.loadMultimodalProjector(mmProjPath));
+    _mmContextActive = true;
+    _resetWebGpuMultimodalWarmupState();
+    await _ensureWebGpuMultimodalWarmup(
+      bridge,
+      isCpuMultimodalRuntime: _isCpuRuntimeForMultimodal(bridge),
+    );
+
     if (result == null) {
-      _mmContextActive = true;
       return 1;
     }
 
     if (result.isA<JSNumber>()) {
-      _mmContextActive = true;
       return (result as JSNumber).toDartInt;
     }
 
-    _mmContextActive = true;
     return 1;
   }
 
@@ -1629,6 +1958,7 @@ class WebGpuLlamaBackend
 
     await _toFuture(bridge.unloadMultimodalProjector());
     _mmContextActive = false;
+    _resetWebGpuMultimodalWarmupState();
   }
 
   @override

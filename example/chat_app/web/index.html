@@ -49,14 +49,76 @@
 </head>
 <body>
   <script type="module">
+    async function clearFlutterServiceWorkerCaches() {
+      if (typeof window === 'undefined') {
+        return;
+      }
+
+      if ('serviceWorker' in navigator) {
+        try {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          await Promise.allSettled(
+            registrations.map((registration) => registration.unregister()),
+          );
+        } catch (_) {
+          // best-effort cleanup only
+        }
+      }
+
+      if ('caches' in window) {
+        try {
+          const keys = await caches.keys();
+          const flutterLikeKeys = keys.filter((key) =>
+            key.startsWith('flutter-') ||
+            key.startsWith('workbox-') ||
+            key.includes('flutter-app-cache') ||
+            key.includes('llamadart-webgpu')
+          );
+          await Promise.allSettled(
+            flutterLikeKeys.map((key) => caches.delete(key)),
+          );
+        } catch (_) {
+          // best-effort cleanup only
+        }
+      }
+    }
+
+    await clearFlutterServiceWorkerCaches();
+
     const configuredRepo = window.__llamadartBridgeAssetsRepo;
     const configuredTag = window.__llamadartBridgeAssetsTag;
+    const bridgeBootstrapVerbose =
+      window.__llamadartBridgeBootstrapVerbose === true;
+    const configuredThreadPoolSize = Number(window.__llamadartBridgeThreadPoolSize);
+    const hardwareConcurrency = Number(window.navigator?.hardwareConcurrency);
+    const inferredThreadPoolSize =
+      window.crossOriginIsolated === true
+        ? Number.isFinite(hardwareConcurrency) && hardwareConcurrency > 0
+          ? Math.max(2, Math.min(4, Math.trunc(hardwareConcurrency)))
+          : 2
+        : 1;
+    const bridgeThreadPoolSize =
+      Number.isFinite(configuredThreadPoolSize) && configuredThreadPoolSize > 0
+        ? Math.max(1, Math.trunc(configuredThreadPoolSize))
+        : inferredThreadPoolSize;
+    window.__llamadartBridgeThreadPoolSize = bridgeThreadPoolSize;
     const safariMinPacked = 170400;
     const safariUnsupportedNeedle =
       'if(currentSafariVersion<TARGET_NOT_SUPPORTED){throw new Error(`This page was compiled without support for Safari browser. Pass -sMIN_SAFARI_VERSION=${currentSafariVersion} or lower to enable support for this browser.`)}';
     const safariMinPattern =
       /if\(currentSafariVersion<\d+\)\{throw new Error\(`This emscripten-generated code requires Safari v\$\{packedVersionToHumanReadable\(\d+\)\} \(detected v\$\{currentSafariVersion\}\)`\)\}/;
     let patchedCoreBlobUrl = null;
+
+    function bridgeBootstrapLog(level, ...args) {
+      if (!bridgeBootstrapVerbose || typeof console === 'undefined') {
+        return;
+      }
+
+      const fn = console[level];
+      if (typeof fn === 'function') {
+        fn.apply(console, args);
+      }
+    }
 
     function isSafariBrowser() {
       const ua = navigator.userAgent || '';
@@ -80,13 +142,18 @@
 
     async function resolveCoreModuleUrl(moduleUrl) {
       const bridgeUrl = new URL(moduleUrl, window.location.href);
-      const coreUrl = new URL('./llama_webgpu_core.js', bridgeUrl).toString();
+      const coreUrl = new URL('./llama_webgpu_core.js', bridgeUrl);
+      const version = bridgeUrl.searchParams.get('v');
+      if (version != null && version.length > 0) {
+        coreUrl.searchParams.set('v', version);
+      }
+      const coreUrlString = coreUrl.toString();
       if (!isSafariBrowser()) {
-        window.__llamadartBridgeCoreModuleUrl = coreUrl;
-        return coreUrl;
+        window.__llamadartBridgeCoreModuleUrl = coreUrlString;
+        return coreUrlString;
       }
 
-      const response = await fetch(coreUrl);
+      const response = await fetch(coreUrlString);
       if (!response.ok) {
         throw new Error(
           `Failed to fetch bridge core for Safari patch: ${response.status} ${response.statusText}`,
@@ -97,8 +164,8 @@
       const patchedSource = patchCoreForSafari(originalSource);
 
       if (patchedSource === originalSource) {
-        window.__llamadartBridgeCoreModuleUrl = coreUrl;
-        return coreUrl;
+        window.__llamadartBridgeCoreModuleUrl = coreUrlString;
+        return coreUrlString;
       }
 
       if (patchedCoreBlobUrl) {
@@ -109,8 +176,21 @@
         new Blob([patchedSource], { type: 'text/javascript' }),
       );
       window.__llamadartBridgeCoreModuleUrl = patchedCoreBlobUrl;
-      console.info('llamadart: applied Safari core compatibility patch');
+      bridgeBootstrapLog('info', 'llamadart: applied Safari core compatibility patch');
       return patchedCoreBlobUrl;
+    }
+
+    function deriveCoreWasmUrl(moduleUrl, memory64 = false) {
+      try {
+        const url = new URL(moduleUrl, window.location.href);
+        url.pathname = url.pathname.replace(
+          /\/llama_webgpu_bridge\.js$/,
+          memory64 ? '/llama_webgpu_core_mem64.wasm' : '/llama_webgpu_core.wasm',
+        );
+        return url.toString();
+      } catch (_) {
+        return null;
+      }
     }
 
     const bridgeAssetsRepo =
@@ -120,8 +200,9 @@
     const bridgeAssetsTag =
       typeof configuredTag === 'string' && configuredTag.length > 0
         ? configuredTag
-        : 'v0.1.7';
-    const localBridgeVersion = 'v0.1.7-20260228';
+        : 'v0.1.8';
+    const localBridgeVersion = 'v0.1.8-local-20260306b';
+    window.__llamadartBridgeLocalVersion = localBridgeVersion;
 
     const localBridgeUrl = `./webgpu_bridge/llama_webgpu_bridge.js?v=${localBridgeVersion}`;
     const cdnBridgeUrl = `https://cdn.jsdelivr.net/gh/${bridgeAssetsRepo}@${bridgeAssetsTag}/llama_webgpu_bridge.js`;
@@ -165,7 +246,9 @@
         ? deriveWorkerModuleUrl(moduleUrl)
         : null;
       const coreModuleUrlMem64 = deriveMem64CoreModuleUrl(moduleUrl);
-      const preferMemory64 = window.__llamadartBridgeEnableMem64 !== false;
+      const wasmUrl = deriveCoreWasmUrl(moduleUrl);
+      const wasmUrlMem64 = deriveCoreWasmUrl(moduleUrl, true);
+      const preferMemory64 = window.__llamadartBridgeEnableMem64 === true;
 
       window.LlamaWebGpuBridge = mod.LlamaWebGpuBridge;
       window.__llamadartBridgeAdaptiveSafariGpu =
@@ -174,12 +257,15 @@
       window.__llamadartBridgeModuleUrl = moduleUrl;
       window.__llamadartBridgeCoreModuleUrl = coreModuleUrl;
       window.__llamadartBridgeCoreModuleUrlMem64 = coreModuleUrlMem64;
+      window.__llamadartBridgeWasmUrl = wasmUrl;
+      window.__llamadartBridgeWasmUrlMem64 = wasmUrlMem64;
       window.__llamadartBridgeWorkerUrl = workerModuleUrl;
       window.__llamadartBridgePreferMemory64 = preferMemory64;
       window.__llamadartBridgeWorkerFallbackReason = null;
       window.__llamadartBridgeLoadError = null;
-      console.info(
-        `llamadart: Web bridge runtime loaded (${source}), worker=${workerModuleUrl ?? 'auto'}, mem64=${coreModuleUrlMem64 ?? 'none'}, preferMem64=${preferMemory64}`,
+      bridgeBootstrapLog(
+        'info',
+        `llamadart: Web bridge runtime loaded (${source}), worker=${workerModuleUrl ?? 'auto'}, mem64=${coreModuleUrlMem64 ?? 'none'}, preferMem64=${preferMemory64}, threadPool=${bridgeThreadPoolSize}`,
       );
     }
 
@@ -187,7 +273,11 @@
     loadBridge(localBridgeUrl, 'local')
       .catch((err) => {
         localError = err;
-        console.warn('llamadart: local bridge load failed, falling back to CDN', err);
+        bridgeBootstrapLog(
+          'warn',
+          'llamadart: local bridge load failed, falling back to CDN',
+          err,
+        );
         return loadBridge(cdnBridgeUrl, 'cdn');
       })
       .catch((cdnErr) => {
@@ -195,7 +285,7 @@
           `Local load failed: ${String(localError)} | ` +
           `CDN load failed: ${String(cdnErr)}`;
         window.__llamadartBridgeLoadError = detail;
-        console.error('llamadart: failed to load bridge runtime', detail);
+        bridgeBootstrapLog('error', 'llamadart: failed to load bridge runtime', detail);
       });
   </script>
   <script src="flutter_bootstrap.js" async></script>

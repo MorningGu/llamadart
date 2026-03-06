@@ -21,8 +21,23 @@ void main() {
     late bool sawAudioParts;
     late bool sawAudioBytes;
     int? lastRequestedGpuLayers;
+    int? lastRequestedThreadsBatch;
+    int? lastRequestedBatchSize;
+    int? lastRequestedMicroBatchSize;
+    int? lastMediaMaxPredict;
+    int? lastMediaMaxImagePixels;
+    int? lastMediaMaxImageEdge;
     int? lastBridgeLogLevel;
+    bool? lastEmitCurrentTextOnToken;
+    String? lastTokenEventEncoding;
+    int? lastTokenEventFlushMs;
+    int? lastTokenEventFlushChars;
     WebGpuBridgeConfig? lastBridgeConfig;
+    late int runtimeGpuLayers;
+    late bool runtimeGpuActive;
+    late int runtimeThreads;
+    int createCompletionCallCount = 0;
+    int warmupCallCount = 0;
 
     void clearBridgeGlobals() {
       globalContext.delete('LlamaWebGpuBridge'.toJS);
@@ -30,9 +45,13 @@ void main() {
       globalContext.delete('__llamadartBridgeAssetSource'.toJS);
       globalContext.delete('__llamadartBridgeModuleUrl'.toJS);
       globalContext.delete('__llamadartBridgeCoreModuleUrl'.toJS);
+      globalContext.delete('__llamadartBridgeWasmUrl'.toJS);
+      globalContext.delete('__llamadartBridgeWasmUrlMem64'.toJS);
       globalContext.delete('__llamadartBridgeUserAgent'.toJS);
       globalContext.delete('__llamadartAllowSafariWebGpu'.toJS);
       globalContext.delete('__llamadartBridgeAdaptiveSafariGpu'.toJS);
+      globalContext.delete('__llamadartBridgeRemoteFetchChunkBytes'.toJS);
+      globalContext.delete('__llamadartBridgeThreadPoolSize'.toJS);
     }
 
     setUp(() {
@@ -44,8 +63,23 @@ void main() {
       sawAudioParts = false;
       sawAudioBytes = false;
       lastRequestedGpuLayers = null;
+      lastRequestedThreadsBatch = null;
+      lastRequestedBatchSize = null;
+      lastRequestedMicroBatchSize = null;
+      lastMediaMaxPredict = null;
+      lastMediaMaxImagePixels = null;
+      lastMediaMaxImageEdge = null;
       lastBridgeLogLevel = null;
+      lastEmitCurrentTextOnToken = null;
+      lastTokenEventEncoding = null;
+      lastTokenEventFlushMs = null;
+      lastTokenEventFlushChars = null;
       lastBridgeConfig = null;
+      runtimeGpuLayers = 99;
+      runtimeGpuActive = true;
+      runtimeThreads = 4;
+      createCompletionCallCount = 0;
+      warmupCallCount = 0;
 
       bridge.setProperty(
         'loadModelFromUrl'.toJS,
@@ -54,6 +88,21 @@ void main() {
             final nGpuLayers = config.getProperty('nGpuLayers'.toJS);
             if (nGpuLayers.isA<JSNumber>()) {
               lastRequestedGpuLayers = (nGpuLayers as JSNumber).toDartInt;
+            }
+
+            final nThreadsBatch = config.getProperty('nThreadsBatch'.toJS);
+            if (nThreadsBatch.isA<JSNumber>()) {
+              lastRequestedThreadsBatch = (nThreadsBatch as JSNumber).toDartInt;
+            }
+
+            final nBatch = config.getProperty('nBatch'.toJS);
+            if (nBatch.isA<JSNumber>()) {
+              lastRequestedBatchSize = (nBatch as JSNumber).toDartInt;
+            }
+
+            final nUbatch = config.getProperty('nUbatch'.toJS);
+            if (nUbatch.isA<JSNumber>()) {
+              lastRequestedMicroBatchSize = (nUbatch as JSNumber).toDartInt;
             }
           }
 
@@ -64,6 +113,75 @@ void main() {
       bridge.setProperty(
         'createCompletion'.toJS,
         ((String prompt, JSObject opts) {
+          createCompletionCallCount += 1;
+
+          final emitCurrentTextRaw = opts.getProperty(
+            'emitCurrentTextOnToken'.toJS,
+          );
+          if (emitCurrentTextRaw.isA<JSBoolean>()) {
+            lastEmitCurrentTextOnToken =
+                (emitCurrentTextRaw as JSBoolean).toDart;
+          }
+
+          final tokenEventEncodingRaw = opts.getProperty(
+            'tokenEventEncoding'.toJS,
+          );
+          if (tokenEventEncodingRaw.isA<JSString>()) {
+            lastTokenEventEncoding = (tokenEventEncodingRaw as JSString).toDart;
+          }
+
+          final tokenEventFlushMsRaw = opts.getProperty(
+            'tokenEventFlushMs'.toJS,
+          );
+          if (tokenEventFlushMsRaw.isA<JSNumber>()) {
+            lastTokenEventFlushMs =
+                (tokenEventFlushMsRaw as JSNumber).toDartInt;
+          }
+
+          final tokenEventFlushCharsRaw = opts.getProperty(
+            'tokenEventFlushChars'.toJS,
+          );
+          if (tokenEventFlushCharsRaw.isA<JSNumber>()) {
+            lastTokenEventFlushChars =
+                (tokenEventFlushCharsRaw as JSNumber).toDartInt;
+          }
+
+          final mediaMaxPredictRaw = opts.getProperty('mediaMaxPredict'.toJS);
+          if (mediaMaxPredictRaw.isA<JSNumber>()) {
+            lastMediaMaxPredict = (mediaMaxPredictRaw as JSNumber).toDartInt;
+          }
+
+          final mediaMaxImagePixelsRaw = opts.getProperty(
+            'mediaMaxImagePixels'.toJS,
+          );
+          if (mediaMaxImagePixelsRaw.isA<JSNumber>()) {
+            lastMediaMaxImagePixels =
+                (mediaMaxImagePixelsRaw as JSNumber).toDartInt;
+          }
+
+          final mediaMaxImageEdgeRaw = opts.getProperty(
+            'mediaMaxImageEdge'.toJS,
+          );
+          if (mediaMaxImageEdgeRaw.isA<JSNumber>()) {
+            lastMediaMaxImageEdge =
+                (mediaMaxImageEdgeRaw as JSNumber).toDartInt;
+          }
+
+          int? nPredict;
+          final nPredictRaw = opts.getProperty('nPredict'.toJS);
+          if (nPredictRaw.isA<JSNumber>()) {
+            nPredict = (nPredictRaw as JSNumber).toDartInt;
+          }
+
+          final isWarmupCall =
+              nPredict == 1 &&
+              lastMediaMaxPredict == 1 &&
+              !opts.getProperty('onToken'.toJS).isA<JSFunction>();
+          if (isWarmupCall) {
+            warmupCallCount += 1;
+            return Future<void>.value().toJS;
+          }
+
           final parts = opts.getProperty('parts'.toJS);
           if (parts.isA<JSArray>() && (parts as JSArray).length > 0) {
             sawMediaParts = true;
@@ -91,9 +209,7 @@ void main() {
 
           final onToken = opts.getProperty('onToken'.toJS) as JSFunction?;
           if (onToken != null) {
-            final piece = JSUint8Array.withLength(5);
-            piece.toDart.setAll(0, <int>[72, 101, 108, 108, 111]);
-            onToken.callAsFunction(null, piece, 'Hello'.toJS);
+            onToken.callAsFunction(null, 'Hello'.toJS, 'Hello'.toJS);
           }
           return Future<void>.value().toJS;
         }).toJS,
@@ -185,12 +301,20 @@ void main() {
         (() {
           final meta = JSObject();
           meta.setProperty('general.architecture'.toJS, 'llama'.toJS);
+          meta.setProperty(
+            'llamadart.webgpu.n_gpu_layers'.toJS,
+            runtimeGpuLayers.toString().toJS,
+          );
+          meta.setProperty(
+            'llamadart.webgpu.n_threads'.toJS,
+            runtimeThreads.toString().toJS,
+          );
           return meta;
         }).toJS,
       );
 
       bridge.setProperty('getContextSize'.toJS, (() => 4096).toJS);
-      bridge.setProperty('isGpuActive'.toJS, (() => true).toJS);
+      bridge.setProperty('isGpuActive'.toJS, (() => runtimeGpuActive).toJS);
       bridge.setProperty('getBackendName'.toJS, (() => 'WebGPU (Mock)').toJS);
       bridge.setProperty('cancel'.toJS, (() {}).toJS);
       bridge.setProperty(
@@ -237,6 +361,45 @@ void main() {
       expect(await backend.getContextSize(1), 4096);
     });
 
+    test('forwards batch threading and batching model params', () async {
+      await backend.modelLoadFromUrl(
+        'https://example.com/model.gguf',
+        const ModelParams(
+          numberOfThreadsBatch: 3,
+          batchSize: 768,
+          microBatchSize: 384,
+        ),
+      );
+
+      expect(lastRequestedThreadsBatch, 3);
+      expect(lastRequestedBatchSize, 768);
+      expect(lastRequestedMicroBatchSize, 384);
+    });
+
+    test('applies qwen3.5-0.8b batch tuning when unset', () async {
+      await backend.modelLoadFromUrl(
+        'https://example.com/Qwen_Qwen3.5-0.8B-Q4_K_M.gguf',
+        const ModelParams(contextSize: 4096),
+      );
+
+      expect(lastRequestedBatchSize, 768);
+      expect(lastRequestedMicroBatchSize, 256);
+    });
+
+    test('does not apply qwen3.5-0.8b batch tuning in CPU mode', () async {
+      await backend.modelLoadFromUrl(
+        'https://example.com/Qwen_Qwen3.5-0.8B-Q4_K_M.gguf',
+        const ModelParams(
+          contextSize: 4096,
+          preferredBackend: GpuBackend.cpu,
+          gpuLayers: 0,
+        ),
+      );
+
+      expect(lastRequestedBatchSize, isNull);
+      expect(lastRequestedMicroBatchSize, isNull);
+    });
+
     test('streams generated tokens from bridge callback', () async {
       await backend.modelLoadFromUrl(
         'https://example.com/model.gguf',
@@ -249,6 +412,10 @@ void main() {
 
       expect(chunks, isNotEmpty);
       expect(chunks.first, <int>[72, 101, 108, 108, 111]);
+      expect(lastEmitCurrentTextOnToken, isFalse);
+      expect(lastTokenEventEncoding, 'text');
+      expect(lastTokenEventFlushMs, 28);
+      expect(lastTokenEventFlushChars, 48);
     });
 
     test('generates embedding vector from bridge', () async {
@@ -343,8 +510,79 @@ void main() {
         final logLevel = config.getProperty('logLevel'.toJS);
         expect(logLevel.isA<JSNumber>(), isTrue);
         expect((logLevel as JSNumber).toDartInt, LlamaLogLevel.info.index);
+
+        final remoteFetchChunkBytes = config.getProperty(
+          'remoteFetchChunkBytes'.toJS,
+        );
+        expect(remoteFetchChunkBytes.isA<JSNumber>(), isTrue);
+        expect((remoteFetchChunkBytes as JSNumber).toDartInt, 4 * 1024 * 1024);
       },
     );
+
+    test('uses global remote fetch chunk override in bridge config', () async {
+      globalContext.setProperty(
+        '__llamadartBridgeRemoteFetchChunkBytes'.toJS,
+        (2 * 1024 * 1024).toJS,
+      );
+
+      await backend.modelLoadFromUrl(
+        'https://example.com/model.gguf',
+        const ModelParams(),
+      );
+
+      final config = lastBridgeConfig as JSObject?;
+      expect(config, isNotNull);
+      final remoteFetchChunkBytes = config!.getProperty(
+        'remoteFetchChunkBytes'.toJS,
+      );
+      expect(remoteFetchChunkBytes.isA<JSNumber>(), isTrue);
+      expect((remoteFetchChunkBytes as JSNumber).toDartInt, 2 * 1024 * 1024);
+    });
+
+    test('passes thread pool size hint to bridge config', () async {
+      globalContext.setProperty('__llamadartBridgeThreadPoolSize'.toJS, 2.toJS);
+
+      await backend.modelLoadFromUrl(
+        'https://example.com/model.gguf',
+        const ModelParams(),
+      );
+
+      final config = lastBridgeConfig as JSObject?;
+      expect(config, isNotNull);
+      final threadPoolSize = config!.getProperty('threadPoolSize'.toJS);
+      expect(threadPoolSize.isA<JSNumber>(), isTrue);
+      expect((threadPoolSize as JSNumber).toDartInt, 2);
+    });
+
+    test('passes global wasm URLs to bridge config', () async {
+      globalContext.setProperty(
+        '__llamadartBridgeWasmUrl'.toJS,
+        'https://example.com/core.wasm?v=1'.toJS,
+      );
+      globalContext.setProperty(
+        '__llamadartBridgeWasmUrlMem64'.toJS,
+        'https://example.com/core_mem64.wasm?v=1'.toJS,
+      );
+
+      await backend.modelLoadFromUrl(
+        'https://example.com/model.gguf',
+        const ModelParams(),
+      );
+
+      final config = lastBridgeConfig as JSObject?;
+      expect(config, isNotNull);
+
+      final wasmUrl = config!.getProperty('wasmUrl'.toJS);
+      expect(wasmUrl.isA<JSString>(), isTrue);
+      expect((wasmUrl as JSString).toDart, 'https://example.com/core.wasm?v=1');
+
+      final wasmUrlMem64 = config.getProperty('wasmUrlMem64'.toJS);
+      expect(wasmUrlMem64.isA<JSString>(), isTrue);
+      expect(
+        (wasmUrlMem64 as JSString).toDart,
+        'https://example.com/core_mem64.wasm?v=1',
+      );
+    });
 
     test('propagates runtime log level updates to bridge', () async {
       await backend.modelLoadFromUrl(
@@ -356,6 +594,69 @@ void main() {
 
       await backend.setLogLevel(LlamaLogLevel.error);
       expect(lastBridgeLogLevel, LlamaLogLevel.error.index);
+    });
+
+    test('suppresses bridge logger callbacks when log level is none', () async {
+      await backend.modelLoadFromUrl(
+        'https://example.com/model.gguf',
+        const ModelParams(),
+      );
+
+      final config = lastBridgeConfig as JSObject?;
+      expect(config, isNotNull);
+      final logger = config!.getProperty('logger'.toJS);
+      expect(logger.isA<JSObject>(), isTrue);
+      final loggerObject = logger as JSObject;
+
+      final debugFn = loggerObject.getProperty('debug'.toJS) as JSFunction?;
+      final logFn = loggerObject.getProperty('log'.toJS) as JSFunction?;
+      final warnFn = loggerObject.getProperty('warn'.toJS) as JSFunction?;
+      final errorFn = loggerObject.getProperty('error'.toJS) as JSFunction?;
+
+      final consoleObject =
+          globalContext.getProperty('console'.toJS) as JSObject;
+      final originalDebug = consoleObject.getProperty('debug'.toJS);
+      final originalLog = consoleObject.getProperty('log'.toJS);
+      final originalWarn = consoleObject.getProperty('warn'.toJS);
+      final originalError = consoleObject.getProperty('error'.toJS);
+
+      var debugCalls = 0;
+      var logCalls = 0;
+      var warnCalls = 0;
+      var errorCalls = 0;
+
+      consoleObject.setProperty(
+        'debug'.toJS,
+        ((JSAny? _) => debugCalls += 1).toJS,
+      );
+      consoleObject.setProperty('log'.toJS, ((JSAny? _) => logCalls += 1).toJS);
+      consoleObject.setProperty(
+        'warn'.toJS,
+        ((JSAny? _) => warnCalls += 1).toJS,
+      );
+      consoleObject.setProperty(
+        'error'.toJS,
+        ((JSAny? _) => errorCalls += 1).toJS,
+      );
+
+      try {
+        await backend.setLogLevel(LlamaLogLevel.none);
+
+        debugFn?.callAsFunction(null, 'debug'.toJS);
+        logFn?.callAsFunction(null, 'log'.toJS);
+        warnFn?.callAsFunction(null, 'warn'.toJS);
+        errorFn?.callAsFunction(null, 'error'.toJS);
+
+        expect(debugCalls, 0);
+        expect(logCalls, 0);
+        expect(warnCalls, 0);
+        expect(errorCalls, 0);
+      } finally {
+        consoleObject.setProperty('debug'.toJS, originalDebug);
+        consoleObject.setProperty('log'.toJS, originalLog);
+        consoleObject.setProperty('warn'.toJS, originalWarn);
+        consoleObject.setProperty('error'.toJS, originalError);
+      }
     });
 
     test('forces CPU fallback on Safari unless override is enabled', () async {
@@ -418,6 +719,37 @@ void main() {
       bridge.setProperty(
         'createCompletion'.toJS,
         ((String prompt, JSObject opts) {
+          final emitCurrentTextRaw = opts.getProperty(
+            'emitCurrentTextOnToken'.toJS,
+          );
+          if (emitCurrentTextRaw.isA<JSBoolean>()) {
+            lastEmitCurrentTextOnToken =
+                (emitCurrentTextRaw as JSBoolean).toDart;
+          }
+
+          final tokenEventEncodingRaw = opts.getProperty(
+            'tokenEventEncoding'.toJS,
+          );
+          if (tokenEventEncodingRaw.isA<JSString>()) {
+            lastTokenEventEncoding = (tokenEventEncodingRaw as JSString).toDart;
+          }
+
+          final tokenEventFlushMsRaw = opts.getProperty(
+            'tokenEventFlushMs'.toJS,
+          );
+          if (tokenEventFlushMsRaw.isA<JSNumber>()) {
+            lastTokenEventFlushMs =
+                (tokenEventFlushMsRaw as JSNumber).toDartInt;
+          }
+
+          final tokenEventFlushCharsRaw = opts.getProperty(
+            'tokenEventFlushChars'.toJS,
+          );
+          if (tokenEventFlushCharsRaw.isA<JSNumber>()) {
+            lastTokenEventFlushChars =
+                (tokenEventFlushCharsRaw as JSNumber).toDartInt;
+          }
+
           final onToken = opts.getProperty('onToken'.toJS) as JSFunction?;
           if (onToken != null) {
             final firstPiece = JSUint8Array.withLength(2);
@@ -449,6 +781,10 @@ void main() {
       final output = utf8.decode(chunks.expand((b) => b).toList());
       expect(output, 'hi');
       expect(output.contains('<|im_end|>'), isFalse);
+      expect(lastEmitCurrentTextOnToken, isTrue);
+      expect(lastTokenEventEncoding, 'text');
+      expect(lastTokenEventFlushMs, 0);
+      expect(lastTokenEventFlushChars, isNull);
     });
 
     test('throws when bridge load fails', () async {
@@ -558,11 +894,131 @@ void main() {
       expect(chunks, isNotEmpty);
       expect(sawMediaParts, isTrue);
       expect(mmLoaded, isTrue);
+      expect(warmupCallCount, 1);
+      expect(lastMediaMaxImagePixels, 1048576);
+      expect(lastMediaMaxImageEdge, 1280);
 
       await backend.multimodalContextFree(mmHandle);
       expect(mmLoaded, isFalse);
       expect(await backend.supportsVision(mmHandle), isFalse);
     });
+
+    test('runs WebGPU multimodal warmup once per projector load', () async {
+      await backend.modelLoadFromUrl(
+        'https://example.com/model.gguf',
+        const ModelParams(),
+      );
+
+      final firstHandle = await backend.multimodalContextCreate(
+        1,
+        'https://example.com/mmproj.gguf',
+      );
+      expect(firstHandle, isNotNull);
+      expect(warmupCallCount, 1);
+
+      await backend
+          .generate(
+            1,
+            'Describe this image',
+            const GenerationParams(maxTokens: 64),
+            parts: <LlamaContentPart>[
+              LlamaImageContent(bytes: Uint8List.fromList(<int>[1, 2, 3])),
+            ],
+          )
+          .toList();
+      await backend
+          .generate(
+            1,
+            'Describe this image again',
+            const GenerationParams(maxTokens: 64),
+            parts: <LlamaContentPart>[
+              LlamaImageContent(bytes: Uint8List.fromList(<int>[4, 5, 6])),
+            ],
+          )
+          .toList();
+
+      expect(warmupCallCount, 1);
+      expect(createCompletionCallCount, 3);
+
+      await backend.multimodalContextFree(firstHandle!);
+      final secondHandle = await backend.multimodalContextCreate(
+        1,
+        'https://example.com/mmproj.gguf',
+      );
+      expect(secondHandle, isNotNull);
+      expect(warmupCallCount, 2);
+    });
+
+    test('applies adaptive CPU multimodal caps for 4-thread runtime', () async {
+      runtimeGpuLayers = 0;
+      runtimeGpuActive = false;
+
+      await backend.modelLoadFromUrl(
+        'https://example.com/model.gguf',
+        const ModelParams(preferredBackend: GpuBackend.cpu, gpuLayers: 0),
+      );
+
+      final mmHandle = await backend.multimodalContextCreate(
+        1,
+        'https://example.com/mmproj.gguf',
+      );
+
+      expect(mmHandle, isNotNull);
+
+      final chunks = await backend
+          .generate(
+            1,
+            'Describe this image',
+            const GenerationParams(maxTokens: 1024),
+            parts: <LlamaContentPart>[
+              LlamaImageContent(bytes: Uint8List.fromList(<int>[1, 2, 3])),
+            ],
+          )
+          .toList();
+
+      expect(chunks, isNotEmpty);
+      expect(lastMediaMaxPredict, 192);
+      expect(lastMediaMaxImagePixels, 307200);
+      expect(lastMediaMaxImageEdge, 768);
+    });
+
+    test(
+      'applies tighter CPU multimodal caps for low-thread runtime',
+      () async {
+        runtimeGpuLayers = 0;
+        runtimeGpuActive = false;
+        runtimeThreads = 1;
+
+        await backend.modelLoadFromUrl(
+          'https://example.com/model.gguf',
+          const ModelParams(preferredBackend: GpuBackend.cpu, gpuLayers: 0),
+        );
+
+        final mmHandle = await backend.multimodalContextCreate(
+          1,
+          'https://example.com/mmproj.gguf',
+        );
+
+        expect(mmHandle, isNotNull);
+
+        final chunks = await backend
+            .generate(
+              1,
+              'Describe this image',
+              const GenerationParams(maxTokens: 1024),
+              parts: <LlamaContentPart>[
+                LlamaImageContent(bytes: Uint8List.fromList(<int>[1, 2, 3])),
+              ],
+            )
+            .toList();
+
+        expect(chunks, isNotEmpty);
+        expect(lastMediaMaxPredict, 128);
+        expect(lastMediaMaxImagePixels, 196608);
+        expect(lastMediaMaxImageEdge, 640);
+        expect(warmupCallCount, 0);
+      },
+    );
 
     test('reports audio support and forwards audio parts', () async {
       bridge.setProperty('supportsAudio'.toJS, (() => mmLoaded).toJS);

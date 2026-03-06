@@ -22,6 +22,7 @@ class ChatService {
   Future<void> init(
     ChatSettings settings, {
     Function(double progress)? onProgress,
+    bool eagerLoadMultimodalProjector = true,
   }) async {
     if (settings.modelPath == null) throw Exception("Model path is null");
 
@@ -101,17 +102,27 @@ class ChatService {
       syntheticProgressTimer?.cancel();
     }
 
-    if (settings.mmprojPath != null && settings.mmprojPath!.isNotEmpty) {
-      try {
-        await _engine.loadMultimodalProjector(settings.mmprojPath!);
-        debugPrint("Loaded multimodal projector from ${settings.mmprojPath}");
-      } catch (e) {
-        debugPrint("Failed to load multimodal projector: $e");
-        throw Exception(
-          'Failed to load multimodal projector (${settings.mmprojPath}). '
-          'Please verify this mmproj matches the selected model.',
-        );
-      }
+    if (eagerLoadMultimodalProjector &&
+        settings.mmprojPath != null &&
+        settings.mmprojPath!.isNotEmpty) {
+      await loadMultimodalProjector(settings.mmprojPath!);
+    }
+  }
+
+  /// Loads multimodal projector for image/audio requests.
+  Future<void> loadMultimodalProjector(String mmprojPath) async {
+    if (mmprojPath.isEmpty) {
+      throw Exception('Multimodal projector path is empty.');
+    }
+
+    try {
+      await _engine.loadMultimodalProjector(mmprojPath);
+    } catch (e) {
+      debugPrint("Failed to load multimodal projector: $e");
+      throw Exception(
+        'Failed to load multimodal projector ($mmprojPath). '
+        'Please verify this mmproj matches the selected model.',
+      );
     }
   }
 
