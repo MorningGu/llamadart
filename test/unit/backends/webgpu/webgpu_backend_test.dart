@@ -38,6 +38,7 @@ void main() {
     late int runtimeThreads;
     int createCompletionCallCount = 0;
     int warmupCallCount = 0;
+    int cancelCallCount = 0;
 
     void clearBridgeGlobals() {
       globalContext.delete('LlamaWebGpuBridge'.toJS);
@@ -80,6 +81,7 @@ void main() {
       runtimeThreads = 4;
       createCompletionCallCount = 0;
       warmupCallCount = 0;
+      cancelCallCount = 0;
 
       bridge.setProperty(
         'loadModelFromUrl'.toJS,
@@ -316,7 +318,7 @@ void main() {
       bridge.setProperty('getContextSize'.toJS, (() => 4096).toJS);
       bridge.setProperty('isGpuActive'.toJS, (() => runtimeGpuActive).toJS);
       bridge.setProperty('getBackendName'.toJS, (() => 'WebGPU (Mock)').toJS);
-      bridge.setProperty('cancel'.toJS, (() {}).toJS);
+      bridge.setProperty('cancel'.toJS, (() => cancelCallCount += 1).toJS);
       bridge.setProperty(
         'setLogLevel'.toJS,
         ((int level) {
@@ -417,6 +419,46 @@ void main() {
       expect(lastTokenEventFlushMs, 28);
       expect(lastTokenEventFlushChars, 48);
     });
+
+    test(
+      'canceling generation subscription aborts active bridge completion',
+      () async {
+        final completion = Completer<void>();
+        bridge.setProperty(
+          'cancel'.toJS,
+          (() {
+            cancelCallCount += 1;
+            if (!completion.isCompleted) {
+              completion.complete();
+            }
+          }).toJS,
+        );
+        bridge.setProperty(
+          'createCompletion'.toJS,
+          ((String prompt, JSObject opts) {
+            final onToken = opts.getProperty('onToken'.toJS) as JSFunction?;
+            onToken?.callAsFunction(null, 'Hello'.toJS, 'Hello'.toJS);
+            return completion.future.toJS;
+          }).toJS,
+        );
+
+        await backend.modelLoadFromUrl(
+          'https://example.com/model.gguf',
+          const ModelParams(),
+        );
+
+        final subscription = backend
+            .generate(1, 'Hello', const GenerationParams())
+            .listen((_) {});
+        await Future<void>.delayed(Duration.zero);
+        await subscription.cancel();
+
+        expect(cancelCallCount, 1);
+        if (!completion.isCompleted) {
+          completion.complete();
+        }
+      },
+    );
 
     test('generates embedding vector from bridge', () async {
       await backend.modelLoadFromUrl(
@@ -785,6 +827,78 @@ void main() {
       expect(lastTokenEventEncoding, 'text');
       expect(lastTokenEventFlushMs, 0);
       expect(lastTokenEventFlushChars, isNull);
+    });
+
+    test(
+      'buffers partial stop sequence prefixes across token callbacks',
+      () async {
+        bridge.setProperty(
+          'createCompletion'.toJS,
+          ((String prompt, JSObject opts) {
+            final onToken = opts.getProperty('onToken'.toJS) as JSFunction?;
+            if (onToken != null) {
+              for (final text in <String>[
+                'hi<',
+                'hi<|',
+                'hi<|im_',
+                'hi<|im_end',
+                'hi<|im_end|>',
+              ]) {
+                onToken.callAsFunction(null, null, text.toJS);
+              }
+            }
+            return Future<void>.error(Exception('aborted')).toJS;
+          }).toJS,
+        );
+
+        await backend.modelLoadFromUrl(
+          'https://example.com/model.gguf',
+          const ModelParams(),
+        );
+
+        final chunks = await backend
+            .generate(
+              1,
+              'Hello',
+              const GenerationParams(stopSequences: <String>['<|im_end|>']),
+            )
+            .toList();
+
+        expect(utf8.decode(chunks.expand((chunk) => chunk).toList()), 'hi');
+        expect(cancelCallCount, 0);
+      },
+    );
+
+    test('closes generation stream after bridge completion errors', () async {
+      bridge.setProperty(
+        'createCompletion'.toJS,
+        ((String prompt, JSObject opts) {
+          return Future<void>.error(Exception('completion failed')).toJS;
+        }).toJS,
+      );
+
+      await backend.modelLoadFromUrl(
+        'https://example.com/model.gguf',
+        const ModelParams(),
+      );
+
+      final errors = <Object>[];
+      final done = Completer<void>();
+      backend
+          .generate(1, 'Hello', const GenerationParams())
+          .listen(
+            (_) {},
+            onError: errors.add,
+            onDone: () {
+              if (!done.isCompleted) {
+                done.complete();
+              }
+            },
+          );
+
+      await done.future.timeout(const Duration(seconds: 1));
+      expect(errors, hasLength(1));
+      expect(errors.single.toString(), contains('Dart exception thrown'));
     });
 
     test('throws when bridge load fails', () async {

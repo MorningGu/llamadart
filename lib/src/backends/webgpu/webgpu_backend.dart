@@ -247,7 +247,11 @@ class WebGpuLlamaBackend
 
   Future<void> _safeDisposeBridge() async {
     final bridge = _bridge;
+    final abortController = _abortController;
     _bridge = null;
+    _abortController = null;
+    abortController?.abort();
+    bridge?.cancel();
     if (bridge == null) {
       return;
     }
@@ -1198,6 +1202,25 @@ class WebGpuLlamaBackend
     return const <int>[];
   }
 
+  int _findEarliestStopSequenceIndex(
+    String text,
+    List<String> stopSequences,
+    int startIndex,
+  ) {
+    var earliestIndex = -1;
+    final normalizedStartIndex = math.max(0, startIndex);
+
+    for (final stop in stopSequences) {
+      final matchIndex = text.indexOf(stop, normalizedStartIndex);
+      if (matchIndex != -1 &&
+          (earliestIndex == -1 || matchIndex < earliestIndex)) {
+        earliestIndex = matchIndex;
+      }
+    }
+
+    return earliestIndex;
+  }
+
   List<double> _parseEmbeddingVector(JSAny? value) {
     if (value == null) {
       return const <double>[];
@@ -1513,12 +1536,37 @@ class WebGpuLlamaBackend
         ? cpuMultimodalLimits?.mediaMaxImageEdge
         : (isGpuMultimodalRuntime ? _gpuMultimodalMaxImageEdge : null);
 
-    final controller = StreamController<List<int>>();
-    _abortController = AbortController();
-    var emittedLength = 0;
-    final hasStopSequences = params.stopSequences.any(
-      (stop) => stop.isNotEmpty,
+    final abortController = AbortController();
+    late final StreamController<List<int>> controller;
+    var canceledByCaller = false;
+    controller = StreamController<List<int>>(
+      onCancel: () {
+        if (controller.isClosed) {
+          return null;
+        }
+        canceledByCaller = true;
+        if (identical(_abortController, abortController)) {
+          _abortController = null;
+        }
+        abortController.abort();
+        bridge.cancel();
+        if (!controller.isClosed) {
+          return controller.close();
+        }
+        return null;
+      },
     );
+    _abortController = abortController;
+    var emittedLength = 0;
+    var latestText = '';
+    var stoppedBySequence = false;
+    final stopSequences = params.stopSequences
+        .where((stop) => stop.isNotEmpty)
+        .toList(growable: false);
+    final hasStopSequences = stopSequences.isNotEmpty;
+    final maxStopSequenceLength = hasStopSequences
+        ? stopSequences.map((stop) => stop.length).reduce(math.max)
+        : 0;
     final tokenEventFlushMs = hasStopSequences
         ? 0
         : (mediaParts == null ? 28 : 12);
@@ -1526,48 +1574,49 @@ class WebGpuLlamaBackend
         ? null
         : (mediaParts == null ? 48 : 24);
 
+    void emitText(String text) {
+      if (text.isEmpty || controller.isClosed) {
+        return;
+      }
+      controller.add(utf8.encode(text));
+    }
+
     final onToken = (JSAny? piece, JSAny? currentText) {
       if (hasStopSequences &&
           currentText != null &&
           currentText.isA<JSString>()) {
         final fullText = (currentText as JSString).toDart;
+        latestText = fullText;
         if (fullText.length < emittedLength) {
           emittedLength = 0;
         }
 
-        var stopIndex = -1;
-        if (params.stopSequences.isNotEmpty) {
-          for (final stop in params.stopSequences) {
-            if (stop.isEmpty) {
-              continue;
-            }
-            final idx = fullText.indexOf(stop);
-            if (idx != -1 && (stopIndex == -1 || idx < stopIndex)) {
-              stopIndex = idx;
-            }
-          }
-        }
+        final stopIndex = _findEarliestStopSequenceIndex(
+          fullText,
+          stopSequences,
+          emittedLength - maxStopSequenceLength + 1,
+        );
 
         if (stopIndex != -1) {
           if (stopIndex > emittedLength) {
-            final delta = fullText.substring(emittedLength, stopIndex);
-            if (delta.isNotEmpty) {
-              controller.add(utf8.encode(delta));
-            }
+            emitText(fullText.substring(emittedLength, stopIndex));
           }
           emittedLength = stopIndex;
-          _abortController?.abort();
+          stoppedBySequence = true;
+          abortController.abort();
           return;
         }
 
-        if (fullText.length > emittedLength) {
-          final delta = fullText.substring(emittedLength);
-          if (delta.isNotEmpty) {
-            controller.add(utf8.encode(delta));
-            emittedLength = fullText.length;
-            return;
-          }
+        final safeEmitEnd = math.max(
+          emittedLength,
+          fullText.length - maxStopSequenceLength + 1,
+        );
+        if (safeEmitEnd > emittedLength) {
+          emitText(fullText.substring(emittedLength, safeEmitEnd));
+          emittedLength = safeEmitEnd;
         }
+
+        return;
       }
 
       final bytes = _pieceToBytes(piece);
@@ -1575,7 +1624,9 @@ class WebGpuLlamaBackend
         return;
       }
 
-      controller.add(bytes);
+      if (!controller.isClosed) {
+        controller.add(bytes);
+      }
     }.toJS;
 
     final options = WebGpuCompletionOptions(
@@ -1598,21 +1649,40 @@ class WebGpuLlamaBackend
       signal: _abortController?.signal,
     );
 
-    Future<void>(() async {
-      await Future<void>.delayed(Duration.zero);
-      if (mediaParts != null) {
-        await _ensureWebGpuMultimodalWarmup(
-          bridge,
-          isCpuMultimodalRuntime: isCpuMultimodalRuntime,
-        );
-      }
-      final normalizedPrompt = _normalizePromptForBridge(prompt, bridge);
-      final completion = bridge.createCompletion(normalizedPrompt, options);
-      await _toFuture(completion);
-      await controller.close();
-    }).catchError((Object e, StackTrace st) {
-      controller.addError(e, st);
-    });
+    unawaited(
+      Future<void>(() async {
+        await Future<void>.delayed(Duration.zero);
+        try {
+          if (mediaParts != null) {
+            await _ensureWebGpuMultimodalWarmup(
+              bridge,
+              isCpuMultimodalRuntime: isCpuMultimodalRuntime,
+            );
+          }
+          final normalizedPrompt = _normalizePromptForBridge(prompt, bridge);
+          final completion = bridge.createCompletion(normalizedPrompt, options);
+          await _toFuture(completion);
+
+          if (hasStopSequences &&
+              !stoppedBySequence &&
+              latestText.length > emittedLength) {
+            emitText(latestText.substring(emittedLength));
+            emittedLength = latestText.length;
+          }
+        } catch (e, st) {
+          if (!stoppedBySequence && !canceledByCaller && !controller.isClosed) {
+            controller.addError(e, st);
+          }
+        } finally {
+          if (identical(_abortController, abortController)) {
+            _abortController = null;
+          }
+          if (!controller.isClosed) {
+            await controller.close();
+          }
+        }
+      }),
+    );
 
     return controller.stream;
   }

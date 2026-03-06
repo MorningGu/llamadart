@@ -116,6 +116,7 @@ typedef _MtmdLogSetDart = void Function(ggml_log_callback, Pointer<Void>);
 /// This service handles the direct interaction with the native Llama.cpp library,
 /// including loading models, creating contexts, managing memory, and running inference.
 class LlamaCppService {
+  static const int _maxStartupDiagnostics = 32;
   static const Map<String, int> _androidCpuVariantPriority = <String, int>{
     'android_armv9.2_2': 0,
     'android_armv9.2_1': 1,
@@ -154,6 +155,7 @@ class LlamaCppService {
   bool _mtmdFallbackLookupAttempted = false;
   bool _mtmdPrimarySymbolsUnavailable = false;
   _MtmdApi? _mtmdFallbackApi;
+  final List<String> _startupDiagnostics = <String>[];
 
   // --- Internal State ---
   final Map<int, _LlamaModelWrapper> _models = {};
@@ -389,18 +391,26 @@ class LlamaCppService {
 
     for (final candidates in preloadCandidates) {
       var loaded = false;
+      Object? lastError;
+      String? lastCandidate;
       for (final candidate in candidates) {
         try {
           _preloadedCoreLibraries.add(DynamicLibrary.open(candidate));
           loaded = true;
           break;
-        } catch (_) {
+        } catch (error) {
+          lastError = error;
+          lastCandidate = candidate;
           continue;
         }
       }
 
-      if (!loaded) {
-        // Best effort: continue and let normal fallback paths handle loading.
+      if (!loaded && lastError != null && lastCandidate != null) {
+        _recordStartupDiagnostic(
+          'Failed to preload Linux core library candidates '
+          '`${candidates.join(', ')}`; last error from `$lastCandidate`: '
+          '$lastError',
+        );
       }
     }
   }
@@ -424,12 +434,17 @@ class LlamaCppService {
     ];
 
     for (final libraryFileName in coreLibraries) {
-      _ensureLinuxLibraryPresent(
+      copyMissingLinuxLibrary(
         targetDirectory: targetDir,
         sourceDirectories: sourceDirectories,
         fileName: libraryFileName,
+        onDiagnostic: _recordStartupDiagnostic,
       );
-      _ensureLinuxSonameAlias(targetDir, libraryFileName);
+      ensureLinuxSonameAlias(
+        directory: targetDir,
+        baseFileName: libraryFileName,
+        onDiagnostic: _recordStartupDiagnostic,
+      );
     }
 
     const backendModuleLibraries = <String>[
@@ -442,12 +457,17 @@ class LlamaCppService {
     ];
 
     for (final libraryFileName in backendModuleLibraries) {
-      _ensureLinuxLibraryPresent(
+      copyMissingLinuxLibrary(
         targetDirectory: targetDir,
         sourceDirectories: sourceDirectories,
         fileName: libraryFileName,
+        onDiagnostic: _recordStartupDiagnostic,
       );
-      _ensureLinuxSonameAlias(targetDir, libraryFileName);
+      ensureLinuxSonameAlias(
+        directory: targetDir,
+        baseFileName: libraryFileName,
+        onDiagnostic: _recordStartupDiagnostic,
+      );
     }
 
     _linuxPreparedLibraryDirectory = targetDir;
@@ -523,14 +543,20 @@ class LlamaCppService {
     }
   }
 
-  void _ensureLinuxLibraryPresent({
+  /// Copies a missing Linux runtime dependency into the target directory.
+  ///
+  /// Returns `true` when the dependency already exists or is copied
+  /// successfully. When a copy attempt fails, [onDiagnostic] receives a
+  /// best-effort diagnostic message.
+  static bool copyMissingLinuxLibrary({
     required String targetDirectory,
     required List<String> sourceDirectories,
     required String fileName,
+    void Function(String message)? onDiagnostic,
   }) {
     final targetPath = path.join(targetDirectory, fileName);
     if (File(targetPath).existsSync()) {
-      return;
+      return true;
     }
 
     for (final sourceDirectory in sourceDirectories) {
@@ -541,37 +567,58 @@ class LlamaCppService {
       }
       try {
         sourceFile.copySync(targetPath);
-        return;
-      } catch (_) {
+        return true;
+      } catch (error) {
+        onDiagnostic?.call(
+          'Failed to copy Linux runtime dependency `$fileName` from '
+          '`$sourcePath` to `$targetPath`: $error',
+        );
         continue;
       }
     }
+
+    return false;
   }
 
-  void _ensureLinuxSonameAlias(String directory, String baseFileName) {
+  /// Ensures a Linux SONAME alias file exists for [baseFileName].
+  ///
+  /// Returns `true` when the alias already exists or is created successfully.
+  /// When both symlink creation and fallback copying fail, [onDiagnostic]
+  /// receives a best-effort diagnostic message.
+  static bool ensureLinuxSonameAlias({
+    required String directory,
+    required String baseFileName,
+    void Function(String message)? onDiagnostic,
+  }) {
     final sourcePath = path.join(directory, baseFileName);
     final sourceFile = File(sourcePath);
     if (!sourceFile.existsSync()) {
-      return;
+      return false;
     }
 
     final aliasPath = '$sourcePath.0';
     final aliasFile = File(aliasPath);
     if (aliasFile.existsSync()) {
-      return;
+      return true;
     }
 
+    Object? linkError;
     try {
       Link(aliasPath).createSync(baseFileName);
-      return;
-    } catch (_) {
-      // Fall through to copying when symlinks are unavailable.
+      return true;
+    } catch (error) {
+      linkError = error;
     }
 
     try {
       sourceFile.copySync(aliasPath);
-    } catch (_) {
-      // Best effort only.
+      return true;
+    } catch (copyError) {
+      onDiagnostic?.call(
+        'Failed to create or copy Linux SONAME alias `$aliasPath` for '
+        '`$sourcePath`: link error=$linkError; copy error=$copyError',
+      );
+      return false;
     }
   }
 
@@ -653,6 +700,21 @@ class LlamaCppService {
     } catch (_) {
       return null;
     }
+  }
+
+  /// Returns recent best-effort startup diagnostics collected during setup.
+  List<String> getStartupDiagnostics() {
+    return List<String>.unmodifiable(_startupDiagnostics);
+  }
+
+  void _recordStartupDiagnostic(String message) {
+    if (message.isEmpty) {
+      return;
+    }
+    if (_startupDiagnostics.length >= _maxStartupDiagnostics) {
+      _startupDiagnostics.removeAt(0);
+    }
+    _startupDiagnostics.add(message);
   }
 
   /// Resolves Windows backend-module directory for dynamic backend loading.
