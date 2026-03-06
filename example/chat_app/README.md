@@ -287,10 +287,23 @@ _(Add screenshots here when complete)_
 - If optional `llama_webgpu_core_mem64` bridge assets are present and supported by the browser, chat app bridge bootstrapping can prefer wasm64 core and transparently fall back to wasm32.
 - Large single-file web model loading requires cross-origin isolation
   (`window.crossOriginIsolated === true`).
-- You can force wasm32 preference for debugging by setting
-  `window.__llamadartBridgeEnableMem64 = false` before bridge bootstrap.
+- Chat app defaults to wasm32-first for stability. You can opt into wasm64 preference with
+  `window.__llamadartBridgeEnableMem64 = true` before bridge bootstrap.
 - You can skip auto fetch-backed pre-attempts by setting
   `window.__llamadartBridgeAllowAutoRemoteFetchBackend = false` before bridge bootstrap.
+- You can tune fetch-backed model read chunk size by setting
+  `window.__llamadartBridgeRemoteFetchChunkBytes = <bytes>` before bridge bootstrap
+  (default `4 * 1024 * 1024`, clamped to `4KiB..16MiB`).
+- You can align runtime thread usage with your bridge build by setting
+  `window.__llamadartBridgeThreadPoolSize = <N>` before bridge bootstrap
+  (chat app infers `1` when not cross-origin isolated, else `2..4` from
+  hardware concurrency; explicit override wins).
+- Bridge bootstrap console logs are quiet by default. Enable verbose startup logs with
+  `window.__llamadartBridgeBootstrapVerbose = true` before bridge bootstrap.
+- Runtime status chips expose execution mode/core/cache/worker fallback/runtime notes,
+  so non-COI or worker fallback perf constraints are visible in-app.
+- On web, multimodal projector loading is eager by default for stability: if an
+  mmproj is configured, it is loaded together with the model.
 
 ### Hugging Face static deployment (CI)
 

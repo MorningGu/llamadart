@@ -214,6 +214,7 @@ class MockChatService extends ChatService {
   Future<void> init(
     ChatSettings settings, {
     Function(double progress)? onProgress,
+    bool eagerLoadMultimodalProjector = true,
   }) async {
     if (settings.modelPath == null || settings.modelPath!.isEmpty) {
       throw Exception("Invalid model path");

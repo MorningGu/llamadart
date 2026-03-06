@@ -129,7 +129,7 @@ class _ChatInputState extends State<ChatInput> {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        if (provider.supportsVision || provider.supportsAudio)
+                        if (provider.canAttachMedia)
                           _buildAttachmentMenu(context, provider),
                         Expanded(
                           child: Container(
@@ -379,6 +379,10 @@ class _ChatInputState extends State<ChatInput> {
 
   Widget _buildAttachmentMenu(BuildContext context, ChatProvider provider) {
     final colorScheme = Theme.of(context).colorScheme;
+    final showFallbackImage =
+        provider.canAttachMedia &&
+        !provider.supportsVision &&
+        !provider.supportsAudio;
 
     return PopupMenuButton<String>(
       icon: Icon(Icons.add_circle_outline_rounded, color: colorScheme.primary),
@@ -391,7 +395,7 @@ class _ChatInputState extends State<ChatInput> {
         }
       },
       itemBuilder: (context) => [
-        if (provider.supportsVision)
+        if (provider.supportsVision || showFallbackImage)
           const PopupMenuItem(
             value: 'image',
             child: Row(
