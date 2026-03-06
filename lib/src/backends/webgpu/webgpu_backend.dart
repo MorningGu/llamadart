@@ -26,6 +26,8 @@ class WebGpuLlamaBackend
   static const int _defaultRemoteFetchChunkBytes = 4 * 1024 * 1024;
   static const int _minRemoteFetchChunkBytes = 4 * 1024;
   static const int _maxRemoteFetchChunkBytes = 16 * 1024 * 1024;
+  static const int _gpuMultimodalMaxImagePixels = 1048576;
+  static const int _gpuMultimodalMaxImageEdge = 1280;
   static const Duration _webGpuMultimodalWarmupTimeout = Duration(seconds: 12);
   static final Uint8List _webGpuWarmupRgbBytes = Uint8List.fromList(const <int>[
     0,
@@ -1498,12 +1500,18 @@ class WebGpuLlamaBackend
     final bridge = _requireBridge();
     final isCpuMultimodalRuntime =
         mediaParts != null && _isCpuRuntimeForMultimodal(bridge);
+    final isGpuMultimodalRuntime =
+        mediaParts != null && !isCpuMultimodalRuntime;
     final cpuMultimodalLimits = isCpuMultimodalRuntime
         ? _resolveCpuMultimodalLimits(bridge, params)
         : null;
     final mediaMaxPredict = cpuMultimodalLimits?.mediaMaxPredict;
-    final mediaMaxImagePixels = cpuMultimodalLimits?.mediaMaxImagePixels;
-    final mediaMaxImageEdge = cpuMultimodalLimits?.mediaMaxImageEdge;
+    final mediaMaxImagePixels = isCpuMultimodalRuntime
+        ? cpuMultimodalLimits?.mediaMaxImagePixels
+        : (isGpuMultimodalRuntime ? _gpuMultimodalMaxImagePixels : null);
+    final mediaMaxImageEdge = isCpuMultimodalRuntime
+        ? cpuMultimodalLimits?.mediaMaxImageEdge
+        : (isGpuMultimodalRuntime ? _gpuMultimodalMaxImageEdge : null);
 
     final controller = StreamController<List<int>>();
     _abortController = AbortController();

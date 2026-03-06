@@ -895,6 +895,8 @@ void main() {
       expect(sawMediaParts, isTrue);
       expect(mmLoaded, isTrue);
       expect(warmupCallCount, 1);
+      expect(lastMediaMaxImagePixels, 1048576);
+      expect(lastMediaMaxImageEdge, 1280);
 
       await backend.multimodalContextFree(mmHandle);
       expect(mmLoaded, isFalse);
