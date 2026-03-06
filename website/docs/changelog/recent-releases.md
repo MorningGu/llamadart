@@ -25,6 +25,13 @@ For canonical full release notes, use:
   examples.
 - Added a Basic App SQLite vector retrieval example using
   `bin/llamadart_sqlite_vector_example.dart`.
+- Updated default WebGPU bridge asset pinning to
+  `leehack/llama-web-bridge-assets@v0.1.8`.
+- Improved WebGPU runtime stability/tuning in chat app flows (backend switching,
+  streaming smoothness, and multimodal regression gating).
+- Added GPU-path multimodal image-size capping to reduce memory/runtime pressure
+  on larger image inputs.
+- Compatibility note: no public API breaking changes in `0.6.5`.
 
 ## 0.6.4
 
