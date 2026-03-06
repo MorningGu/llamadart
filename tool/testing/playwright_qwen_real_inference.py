@@ -1,56 +1,32 @@
 #!/usr/bin/env python3
-import json
-import sys
-from typing import Any
+import argparse
 
-from playwright.sync_api import sync_playwright
-
-
-DEFAULT_APP_URL = "http://127.0.0.1:7357"
-DEFAULT_MODEL_URL = (
-    "https://huggingface.co/bartowski/Qwen_Qwen3.5-0.8B-GGUF/resolve/main/"
-    "Qwen_Qwen3.5-0.8B-Q4_K_M.gguf?download=true"
-)
-DEFAULT_MMPROJ_URL = (
-    "https://huggingface.co/bartowski/Qwen_Qwen3.5-0.8B-GGUF/resolve/main/"
-    "mmproj-Qwen_Qwen3.5-0.8B-f16.gguf?download=true"
+from playwright_qwen_harness import (
+    DEFAULT_APP_URL,
+    DEFAULT_MODEL_URL,
+    DEFAULT_MMPROJ_URL,
+    print_json_result,
+    run_bridge_evaluation,
 )
 
 
 def main() -> int:
-    app_url = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_APP_URL
-    model_url = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_MODEL_URL
-    mmproj_url = sys.argv[3] if len(sys.argv) > 3 else DEFAULT_MMPROJ_URL
+    parser = argparse.ArgumentParser()
+    parser.add_argument("app_url", nargs="?", default=DEFAULT_APP_URL)
+    parser.add_argument("model_url", nargs="?", default=DEFAULT_MODEL_URL)
+    parser.add_argument("mmproj_url", nargs="?", default=DEFAULT_MMPROJ_URL)
+    parser.add_argument("--channel", type=str, default="chromium")
+    parser.add_argument("--headed", action="store_true")
+    args = parser.parse_args()
 
-    console_logs: list[dict[str, Any]] = []
-
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
-            headless=False,
-            args=[
-                "--enable-unsafe-webgpu",
-                "--disable-vulkan-surface",
-                "--enable-features=Vulkan",
-            ],
-        )
-        page = browser.new_page()
-        page.set_default_timeout(0)
-
-        def on_console(message: Any) -> None:
-            try:
-                text = message.text
-            except Exception:  # pragma: no cover
-                text = str(message)
-            console_logs.append({"type": message.type, "text": text})
-
-        page.on("console", on_console)
-
-        page.goto(app_url)
-        page.wait_for_load_state("networkidle")
-        page.wait_for_function("() => typeof window.LlamaWebGpuBridge === 'function'")
-
-        result = page.evaluate(
-            """
+    payload = run_bridge_evaluation(
+        app_url=args.app_url,
+        channel=args.channel,
+        headed=args.headed,
+        default_timeout_ms=0,
+        console_tail_count=40,
+        evaluate_script=
+        """
             async ({ modelUrl, mmprojUrl }) => {
               const withTimeout = (promise, ms, label) =>
                 Promise.race([
@@ -308,20 +284,11 @@ def main() -> int:
               }
             }
             """,
-            {"modelUrl": model_url, "mmprojUrl": mmproj_url},
-        )
-
-        browser.close()
-
-    print(
-        json.dumps(
-            {
-                "result": result,
-                "consoleTail": console_logs[-40:],
-            },
-            indent=2,
-        )
+        payload={"modelUrl": args.model_url, "mmprojUrl": args.mmproj_url},
     )
+
+    print_json_result(payload)
+    result = payload.get("result", {})
     return 0 if result.get("ok") else 1
 
 

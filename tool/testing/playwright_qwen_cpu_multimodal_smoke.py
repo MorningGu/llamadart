@@ -1,22 +1,15 @@
 #!/usr/bin/env python3
 import argparse
 import base64
-import json
-import sys
 from pathlib import Path
 from typing import Any
 
-from playwright.sync_api import sync_playwright
-
-
-DEFAULT_APP_URL = "http://127.0.0.1:7357"
-DEFAULT_MODEL_URL = (
-    "https://huggingface.co/bartowski/Qwen_Qwen3.5-0.8B-GGUF/resolve/main/"
-    "Qwen_Qwen3.5-0.8B-Q4_K_M.gguf?download=true"
-)
-DEFAULT_MMPROJ_URL = (
-    "https://huggingface.co/bartowski/Qwen_Qwen3.5-0.8B-GGUF/resolve/main/"
-    "mmproj-Qwen_Qwen3.5-0.8B-f16.gguf?download=true"
+from playwright_qwen_harness import (
+    DEFAULT_APP_URL,
+    DEFAULT_MODEL_URL,
+    DEFAULT_MMPROJ_URL,
+    print_json_result,
+    run_bridge_evaluation,
 )
 
 
@@ -34,6 +27,10 @@ def main() -> int:
     parser.add_argument("--image-path", type=str, default="")
     parser.add_argument("--media-max-image-pixels", type=int, default=0)
     parser.add_argument("--media-max-image-edge", type=int, default=0)
+    parser.add_argument("--max-first-token-latency-ms", type=int, default=0)
+    parser.add_argument("--max-inference-ms", type=int, default=0)
+    parser.add_argument("--min-token-count", type=int, default=0)
+    parser.add_argument("--expect-n-gpu-layers", type=int, default=-1)
     parser.add_argument("--channel", type=str, default="chromium")
     parser.add_argument("--headed", action="store_true")
     args = parser.parse_args()
@@ -57,46 +54,14 @@ def main() -> int:
         image_bytes_base64 = base64.b64encode(image_bytes).decode("ascii")
         image_file_name = image_file.name
 
-    console_logs: list[dict[str, Any]] = []
-
-    with sync_playwright() as playwright:
-        launch_kwargs = {
-            "headless": not args.headed,
-            "args": [
-                "--enable-unsafe-webgpu",
-                "--disable-vulkan-surface",
-                "--enable-features=Vulkan",
-            ],
-        }
-        if args.channel and args.channel != "chromium":
-            launch_kwargs["channel"] = args.channel
-
-        browser = playwright.chromium.launch(
-            **launch_kwargs,
-        )
-        page = browser.new_page()
-        page.set_default_timeout(120000)
-
-        def on_console(message: Any) -> None:
-            try:
-                text = message.text
-            except Exception:  # pragma: no cover
-                text = str(message)
-            console_logs.append({"type": message.type, "text": text})
-            if "llamadart:" in text or "RuntimeError" in text or "failed" in text.lower():
-                print(f"[browser:{message.type}] {text}", flush=True)
-
-        page.on("console", on_console)
-
-        print("[e2e] opening app", flush=True)
-        page.goto(app_url, wait_until="domcontentloaded", timeout=120000)
-        page.wait_for_function(
-            "() => typeof window.LlamaWebGpuBridge === 'function'",
-            timeout=120000,
-        )
-        print("[e2e] app ready", flush=True)
-
-        result = page.evaluate(
+    print("[e2e] opening app", flush=True)
+    payload = run_bridge_evaluation(
+        app_url=app_url,
+        channel=args.channel,
+        headed=args.headed,
+        default_timeout_ms=0,
+        echo_console=True,
+        evaluate_script=
             """
             async ({ modelUrl, mmprojUrl, modelTimeoutMs, mmprojTimeoutMs, inferTimeoutMs, nPredict, nGpuLayers, nThreads, imageBytesBase64, imageFileName, mediaMaxImagePixels, mediaMaxImageEdge }) => {
               const withTimeout = (promise, ms, label) =>
@@ -326,35 +291,97 @@ def main() -> int:
               }
             }
             """,
-            {
-                "modelUrl": model_url,
-                "mmprojUrl": mmproj_url,
-                "modelTimeoutMs": args.model_timeout_ms,
-                "mmprojTimeoutMs": args.mmproj_timeout_ms,
-                "inferTimeoutMs": args.infer_timeout_ms,
-                "nPredict": args.n_predict,
-                "nGpuLayers": args.n_gpu_layers,
-                "nThreads": args.n_threads,
-                "imageBytesBase64": image_bytes_base64,
-                "imageFileName": image_file_name,
-                "mediaMaxImagePixels": args.media_max_image_pixels,
-                "mediaMaxImageEdge": args.media_max_image_edge,
-            },
-        )
-
-        print("[e2e] evaluation finished", flush=True)
-
-        browser.close()
-
-    print(
-        json.dumps(
-            {
-                "result": result,
-                "consoleTail": console_logs[-14:],
-            },
-            indent=2,
-        )
+        payload={
+            "modelUrl": model_url,
+            "mmprojUrl": mmproj_url,
+            "modelTimeoutMs": args.model_timeout_ms,
+            "mmprojTimeoutMs": args.mmproj_timeout_ms,
+            "inferTimeoutMs": args.infer_timeout_ms,
+            "nPredict": args.n_predict,
+            "nGpuLayers": args.n_gpu_layers,
+            "nThreads": args.n_threads,
+            "imageBytesBase64": image_bytes_base64,
+            "imageFileName": image_file_name,
+            "mediaMaxImagePixels": args.media_max_image_pixels,
+            "mediaMaxImageEdge": args.media_max_image_edge,
+        },
     )
+    print("[e2e] evaluation finished", flush=True)
+
+    result: dict[str, Any] = payload.get("result", {})
+    gate_errors: list[str] = []
+
+    debug = result.get("debug")
+    timings = result.get("timings")
+    metadata = result.get("metadata")
+
+    first_token_latency_ms = None
+    if isinstance(debug, dict):
+        raw_first_token = debug.get("firstTokenLatencyMs")
+        if isinstance(raw_first_token, (int, float)):
+            first_token_latency_ms = int(raw_first_token)
+
+    inference_ms = None
+    if isinstance(timings, dict):
+        raw_inference_ms = timings.get("inferenceMs")
+        if isinstance(raw_inference_ms, (int, float)):
+            inference_ms = int(raw_inference_ms)
+
+    token_count = result.get("tokenCount")
+    if not isinstance(token_count, int):
+        token_count = 0
+
+    if args.max_first_token_latency_ms > 0:
+        if first_token_latency_ms is None:
+            gate_errors.append(
+                "Missing first token latency metric for gate validation.",
+            )
+        elif first_token_latency_ms > args.max_first_token_latency_ms:
+            gate_errors.append(
+                "First token latency "
+                f"{first_token_latency_ms}ms exceeds threshold "
+                f"{args.max_first_token_latency_ms}ms.",
+            )
+
+    if args.max_inference_ms > 0:
+        if inference_ms is None:
+            gate_errors.append("Missing inference timing metric for gate validation.")
+        elif inference_ms > args.max_inference_ms:
+            gate_errors.append(
+                f"Inference time {inference_ms}ms exceeds threshold "
+                f"{args.max_inference_ms}ms.",
+            )
+
+    if args.min_token_count > 0 and token_count < args.min_token_count:
+        gate_errors.append(
+            f"Token count {token_count} is below required minimum "
+            f"{args.min_token_count}.",
+        )
+
+    if args.expect_n_gpu_layers >= 0:
+        resolved_gpu_layers = None
+        if isinstance(metadata, dict):
+            raw_layers = metadata.get("nGpuLayers")
+            if raw_layers is not None:
+                try:
+                    resolved_gpu_layers = int(str(raw_layers).strip())
+                except ValueError:
+                    resolved_gpu_layers = None
+
+        if resolved_gpu_layers is None:
+            gate_errors.append("Missing resolved GPU layer metadata for gate validation.")
+        elif resolved_gpu_layers != args.expect_n_gpu_layers:
+            gate_errors.append(
+                "Resolved GPU layers "
+                f"{resolved_gpu_layers} did not match expected "
+                f"{args.expect_n_gpu_layers}.",
+            )
+
+    if gate_errors:
+        result["ok"] = False
+        result["gateErrors"] = gate_errors
+
+    print_json_result(payload)
     return 0 if result.get("ok") else 1
 
 

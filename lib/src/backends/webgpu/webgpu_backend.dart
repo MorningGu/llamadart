@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:web/web.dart';
 
@@ -25,9 +26,12 @@ class WebGpuLlamaBackend
   static const int _defaultRemoteFetchChunkBytes = 4 * 1024 * 1024;
   static const int _minRemoteFetchChunkBytes = 4 * 1024;
   static const int _maxRemoteFetchChunkBytes = 16 * 1024 * 1024;
-  static const int _cpuMultimodalMediaMaxPredict = 192;
-  static const int _cpuMultimodalMaxImagePixels = 307200;
-  static const int _cpuMultimodalMaxImageEdge = 768;
+  static const Duration _webGpuMultimodalWarmupTimeout = Duration(seconds: 12);
+  static final Uint8List _webGpuWarmupRgbBytes = Uint8List.fromList(const <int>[
+    0,
+    0,
+    0,
+  ]);
 
   final String? _bridgeScriptUrl;
   final String? _bridgeWasmUrl;
@@ -42,6 +46,8 @@ class WebGpuLlamaBackend
   AbortController? _abortController;
   int? _lastNCtx;
   bool _mmContextActive = false;
+  bool _webGpuMultimodalWarmupDone = false;
+  bool _webGpuMultimodalWarmupAttempted = false;
   bool? _preferMemory64Override;
   bool? _forceRemoteFetchBackendOverride;
 
@@ -251,6 +257,12 @@ class WebGpuLlamaBackend
     _usingBridge = false;
     _isReady = false;
     _mmContextActive = false;
+    _resetWebGpuMultimodalWarmupState();
+  }
+
+  void _resetWebGpuMultimodalWarmupState() {
+    _webGpuMultimodalWarmupDone = false;
+    _webGpuMultimodalWarmupAttempted = false;
   }
 
   Future<void> _activateBridge() async {
@@ -896,6 +908,7 @@ class WebGpuLlamaBackend
 
         _isReady = true;
         _mmContextActive = false;
+        _resetWebGpuMultimodalWarmupState();
         return 1;
       } catch (e) {
         lastError = e;
@@ -1321,6 +1334,153 @@ class WebGpuLlamaBackend
     return false;
   }
 
+  int? _parsePositiveMetadataInt(JSAny? value) {
+    final asText = _jsValueAsString(value);
+    if (asText == null) {
+      return null;
+    }
+
+    final normalized = asText.trim();
+    final asInt = int.tryParse(normalized);
+    if (asInt != null) {
+      return asInt > 0 ? asInt : null;
+    }
+
+    final asDouble = double.tryParse(normalized);
+    if (asDouble == null || !asDouble.isFinite) {
+      return null;
+    }
+
+    final rounded = asDouble.round();
+    return rounded > 0 ? rounded : null;
+  }
+
+  int? _resolveRuntimeThreadCountForMultimodal(LlamaWebGpuBridge bridge) {
+    final metadata = bridge.getModelMetadata();
+    if (metadata == null) {
+      return null;
+    }
+
+    final candidates = <String>[
+      'llamadart.webgpu.n_threads',
+      'llamadart.webgpu.thread_pool_size',
+      'llamadart.webgpu.n_threads_batch',
+    ];
+
+    for (final key in candidates) {
+      final parsed = _parsePositiveMetadataInt(metadata.getProperty(key.toJS));
+      if (parsed != null) {
+        return parsed;
+      }
+    }
+
+    return null;
+  }
+
+  ({int mediaMaxPredict, int mediaMaxImagePixels, int mediaMaxImageEdge})
+  _resolveCpuMultimodalLimits(
+    LlamaWebGpuBridge bridge,
+    GenerationParams params,
+  ) {
+    final runtimeThreads = _resolveRuntimeThreadCountForMultimodal(bridge) ?? 2;
+    final profile = switch (runtimeThreads) {
+      <= 1 => (
+        mediaMaxPredict: 128,
+        mediaMaxImagePixels: 196608,
+        mediaMaxImageEdge: 640,
+      ),
+      <= 2 => (
+        mediaMaxPredict: 160,
+        mediaMaxImagePixels: 262144,
+        mediaMaxImageEdge: 704,
+      ),
+      <= 4 => (
+        mediaMaxPredict: 192,
+        mediaMaxImagePixels: 307200,
+        mediaMaxImageEdge: 768,
+      ),
+      <= 6 => (
+        mediaMaxPredict: 224,
+        mediaMaxImagePixels: 393216,
+        mediaMaxImageEdge: 896,
+      ),
+      _ => (
+        mediaMaxPredict: 256,
+        mediaMaxImagePixels: 524288,
+        mediaMaxImageEdge: 1024,
+      ),
+    };
+
+    final requestedPredict = params.maxTokens > 0
+        ? params.maxTokens
+        : profile.mediaMaxPredict;
+
+    return (
+      mediaMaxPredict: math.max(
+        32,
+        math.min(requestedPredict, profile.mediaMaxPredict),
+      ),
+      mediaMaxImagePixels: profile.mediaMaxImagePixels,
+      mediaMaxImageEdge: profile.mediaMaxImageEdge,
+    );
+  }
+
+  JSArray _buildWebGpuWarmupParts() {
+    final part = JSObject();
+    part.setProperty('type'.toJS, 'image'.toJS);
+    part.setProperty('bytes'.toJS, _webGpuWarmupRgbBytes.toJS);
+    part.setProperty('width'.toJS, 1.toJS);
+    part.setProperty('height'.toJS, 1.toJS);
+
+    final parts = JSArray();
+    parts.setProperty(0.toJS, part);
+    return parts;
+  }
+
+  Future<void> _ensureWebGpuMultimodalWarmup(
+    LlamaWebGpuBridge bridge, {
+    required bool isCpuMultimodalRuntime,
+  }) async {
+    if (isCpuMultimodalRuntime || !_mmContextActive) {
+      return;
+    }
+    if (_webGpuMultimodalWarmupDone || _webGpuMultimodalWarmupAttempted) {
+      return;
+    }
+
+    _webGpuMultimodalWarmupAttempted = true;
+
+    final warmupOptions = WebGpuCompletionOptions(
+      nPredict: 1,
+      mediaMaxPredict: 1,
+      temp: 0.0,
+      topK: 1,
+      topP: 1.0,
+      penalty: 1.0,
+      seed: 1,
+      mediaMaxImagePixels: 65536,
+      mediaMaxImageEdge: 256,
+      warmup: true,
+      parts: _buildWebGpuWarmupParts(),
+    );
+
+    try {
+      await _toFuture(
+        bridge.createCompletion(
+          'Describe this image in one word.',
+          warmupOptions,
+        ),
+      ).timeout(_webGpuMultimodalWarmupTimeout);
+      _webGpuMultimodalWarmupDone = true;
+    } catch (error) {
+      _emitConsoleText(
+        LlamaLogLevel.debug,
+        'WebGpuLlamaBackend: multimodal warmup skipped after failure: '
+        '${_errorText(error)}',
+      );
+    }
+  }
+
   @override
   Stream<List<int>> generate(
     int contextHandle,
@@ -1338,23 +1498,12 @@ class WebGpuLlamaBackend
     final bridge = _requireBridge();
     final isCpuMultimodalRuntime =
         mediaParts != null && _isCpuRuntimeForMultimodal(bridge);
-    final mediaMaxPredict = isCpuMultimodalRuntime
-        ? math.max(
-            32,
-            math.min(
-              params.maxTokens > 0
-                  ? params.maxTokens
-                  : _cpuMultimodalMediaMaxPredict,
-              _cpuMultimodalMediaMaxPredict,
-            ),
-          )
+    final cpuMultimodalLimits = isCpuMultimodalRuntime
+        ? _resolveCpuMultimodalLimits(bridge, params)
         : null;
-    final mediaMaxImagePixels = isCpuMultimodalRuntime
-        ? _cpuMultimodalMaxImagePixels
-        : null;
-    final mediaMaxImageEdge = isCpuMultimodalRuntime
-        ? _cpuMultimodalMaxImageEdge
-        : null;
+    final mediaMaxPredict = cpuMultimodalLimits?.mediaMaxPredict;
+    final mediaMaxImagePixels = cpuMultimodalLimits?.mediaMaxImagePixels;
+    final mediaMaxImageEdge = cpuMultimodalLimits?.mediaMaxImageEdge;
 
     final controller = StreamController<List<int>>();
     _abortController = AbortController();
@@ -1443,6 +1592,12 @@ class WebGpuLlamaBackend
 
     Future<void>(() async {
       await Future<void>.delayed(Duration.zero);
+      if (mediaParts != null) {
+        await _ensureWebGpuMultimodalWarmup(
+          bridge,
+          isCpuMultimodalRuntime: isCpuMultimodalRuntime,
+        );
+      }
       final normalizedPrompt = _normalizePromptForBridge(prompt, bridge);
       final completion = bridge.createCompletion(normalizedPrompt, options);
       await _toFuture(completion);
@@ -1768,17 +1923,21 @@ class WebGpuLlamaBackend
   ) async {
     final bridge = _requireBridge();
     final result = await _toFuture(bridge.loadMultimodalProjector(mmProjPath));
+    _mmContextActive = true;
+    _resetWebGpuMultimodalWarmupState();
+    await _ensureWebGpuMultimodalWarmup(
+      bridge,
+      isCpuMultimodalRuntime: _isCpuRuntimeForMultimodal(bridge),
+    );
+
     if (result == null) {
-      _mmContextActive = true;
       return 1;
     }
 
     if (result.isA<JSNumber>()) {
-      _mmContextActive = true;
       return (result as JSNumber).toDartInt;
     }
 
-    _mmContextActive = true;
     return 1;
   }
 
@@ -1791,6 +1950,7 @@ class WebGpuLlamaBackend
 
     await _toFuture(bridge.unloadMultimodalProjector());
     _mmContextActive = false;
+    _resetWebGpuMultimodalWarmupState();
   }
 
   @override

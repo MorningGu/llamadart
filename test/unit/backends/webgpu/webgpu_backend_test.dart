@@ -35,6 +35,9 @@ void main() {
     WebGpuBridgeConfig? lastBridgeConfig;
     late int runtimeGpuLayers;
     late bool runtimeGpuActive;
+    late int runtimeThreads;
+    int createCompletionCallCount = 0;
+    int warmupCallCount = 0;
 
     void clearBridgeGlobals() {
       globalContext.delete('LlamaWebGpuBridge'.toJS);
@@ -74,6 +77,9 @@ void main() {
       lastBridgeConfig = null;
       runtimeGpuLayers = 99;
       runtimeGpuActive = true;
+      runtimeThreads = 4;
+      createCompletionCallCount = 0;
+      warmupCallCount = 0;
 
       bridge.setProperty(
         'loadModelFromUrl'.toJS,
@@ -107,6 +113,8 @@ void main() {
       bridge.setProperty(
         'createCompletion'.toJS,
         ((String prompt, JSObject opts) {
+          createCompletionCallCount += 1;
+
           final emitCurrentTextRaw = opts.getProperty(
             'emitCurrentTextOnToken'.toJS,
           );
@@ -157,6 +165,21 @@ void main() {
           if (mediaMaxImageEdgeRaw.isA<JSNumber>()) {
             lastMediaMaxImageEdge =
                 (mediaMaxImageEdgeRaw as JSNumber).toDartInt;
+          }
+
+          int? nPredict;
+          final nPredictRaw = opts.getProperty('nPredict'.toJS);
+          if (nPredictRaw.isA<JSNumber>()) {
+            nPredict = (nPredictRaw as JSNumber).toDartInt;
+          }
+
+          final isWarmupCall =
+              nPredict == 1 &&
+              lastMediaMaxPredict == 1 &&
+              !opts.getProperty('onToken'.toJS).isA<JSFunction>();
+          if (isWarmupCall) {
+            warmupCallCount += 1;
+            return Future<void>.value().toJS;
           }
 
           final parts = opts.getProperty('parts'.toJS);
@@ -281,6 +304,10 @@ void main() {
           meta.setProperty(
             'llamadart.webgpu.n_gpu_layers'.toJS,
             runtimeGpuLayers.toString().toJS,
+          );
+          meta.setProperty(
+            'llamadart.webgpu.n_threads'.toJS,
+            runtimeThreads.toString().toJS,
           );
           return meta;
         }).toJS,
@@ -867,13 +894,60 @@ void main() {
       expect(chunks, isNotEmpty);
       expect(sawMediaParts, isTrue);
       expect(mmLoaded, isTrue);
+      expect(warmupCallCount, 1);
 
       await backend.multimodalContextFree(mmHandle);
       expect(mmLoaded, isFalse);
       expect(await backend.supportsVision(mmHandle), isFalse);
     });
 
-    test('applies CPU multimodal image and token caps', () async {
+    test('runs WebGPU multimodal warmup once per projector load', () async {
+      await backend.modelLoadFromUrl(
+        'https://example.com/model.gguf',
+        const ModelParams(),
+      );
+
+      final firstHandle = await backend.multimodalContextCreate(
+        1,
+        'https://example.com/mmproj.gguf',
+      );
+      expect(firstHandle, isNotNull);
+      expect(warmupCallCount, 1);
+
+      await backend
+          .generate(
+            1,
+            'Describe this image',
+            const GenerationParams(maxTokens: 64),
+            parts: <LlamaContentPart>[
+              LlamaImageContent(bytes: Uint8List.fromList(<int>[1, 2, 3])),
+            ],
+          )
+          .toList();
+      await backend
+          .generate(
+            1,
+            'Describe this image again',
+            const GenerationParams(maxTokens: 64),
+            parts: <LlamaContentPart>[
+              LlamaImageContent(bytes: Uint8List.fromList(<int>[4, 5, 6])),
+            ],
+          )
+          .toList();
+
+      expect(warmupCallCount, 1);
+      expect(createCompletionCallCount, 3);
+
+      await backend.multimodalContextFree(firstHandle!);
+      final secondHandle = await backend.multimodalContextCreate(
+        1,
+        'https://example.com/mmproj.gguf',
+      );
+      expect(secondHandle, isNotNull);
+      expect(warmupCallCount, 2);
+    });
+
+    test('applies adaptive CPU multimodal caps for 4-thread runtime', () async {
       runtimeGpuLayers = 0;
       runtimeGpuActive = false;
 
@@ -905,6 +979,44 @@ void main() {
       expect(lastMediaMaxImagePixels, 307200);
       expect(lastMediaMaxImageEdge, 768);
     });
+
+    test(
+      'applies tighter CPU multimodal caps for low-thread runtime',
+      () async {
+        runtimeGpuLayers = 0;
+        runtimeGpuActive = false;
+        runtimeThreads = 1;
+
+        await backend.modelLoadFromUrl(
+          'https://example.com/model.gguf',
+          const ModelParams(preferredBackend: GpuBackend.cpu, gpuLayers: 0),
+        );
+
+        final mmHandle = await backend.multimodalContextCreate(
+          1,
+          'https://example.com/mmproj.gguf',
+        );
+
+        expect(mmHandle, isNotNull);
+
+        final chunks = await backend
+            .generate(
+              1,
+              'Describe this image',
+              const GenerationParams(maxTokens: 1024),
+              parts: <LlamaContentPart>[
+                LlamaImageContent(bytes: Uint8List.fromList(<int>[1, 2, 3])),
+              ],
+            )
+            .toList();
+
+        expect(chunks, isNotEmpty);
+        expect(lastMediaMaxPredict, 128);
+        expect(lastMediaMaxImagePixels, 196608);
+        expect(lastMediaMaxImageEdge, 640);
+        expect(warmupCallCount, 0);
+      },
+    );
 
     test('reports audio support and forwards audio parts', () async {
       bridge.setProperty('supportsAudio'.toJS, (() => mmLoaded).toJS);

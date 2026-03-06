@@ -168,6 +168,7 @@ extension type WebGpuCompletionOptions._(JSObject _) implements JSObject {
     @JS('tokenEventEncoding') String? tokenEventEncoding,
     @JS('tokenEventFlushMs') int? tokenEventFlushMs,
     @JS('tokenEventFlushChars') int? tokenEventFlushChars,
+    bool? warmup,
     JSArray? parts,
     JSAny? signal,
   });
