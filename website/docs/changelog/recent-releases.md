@@ -10,7 +10,7 @@ For canonical full release notes, use:
 
 - Synced native hook pin to `leehack/llamadart-native@b8216`.
 - Updated default web bridge asset pinning to
-  `leehack/llama-web-bridge-assets@v0.1.9` (llama.cpp `b8216`).
+  `leehack/llama-web-bridge-assets@v0.1.10` (llama.cpp `b8216`).
 - Switched bundled Qwen3.5 example presets to Unsloth `Q4_K_M` GGUFs.
 - Added native perf diagnostics chips in the chat app (`p_eval`, `eval`,
   `sample`, `reuse`) and Android-specific Qwen tuning guidance.

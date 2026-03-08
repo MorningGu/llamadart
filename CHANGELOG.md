@@ -2,7 +2,7 @@
 
 * **Runtime syncs**:
   * Updated native hook pinning to `leehack/llamadart-native@b8216`.
-  * Updated default web bridge asset pinning to `leehack/llama-web-bridge-assets@v0.1.9` (llama.cpp `b8216`).
+  * Updated default web bridge asset pinning to `leehack/llama-web-bridge-assets@v0.1.10` (llama.cpp `b8216`).
 * **Qwen3.5 runtime stabilization (Android + Web)**:
   * Switched bundled Qwen3.5 presets to Unsloth `Q4_K_M` GGUFs across the example catalog and tooling.
   * Added Android-native perf diagnostics chips (`p_eval`, `eval`, `sample`, `reuse`) backed by llama.cpp context timings with manual timing fallback when built-in counters report zero.
