@@ -33,5 +33,12 @@ flutter test
 
 ## Web notes
 
-On web, this example uses bridge runtime assets with CDN-first loading and local
-fallback behavior.
+On web, this example prefers local bridge assets on `localhost` for development
+validation and otherwise prefers CDN assets with local fallback.
+
+## Android notes
+
+- Qwen3.5 `0.8B` and `2B` currently default to `CPU` on Android because that was
+  the fastest verified path on the maintainer Pixel test device.
+- Runtime chips expose native llama.cpp timing breakdowns (`p_eval`, `eval`,
+  `sample`, `reuse`) so Android CPU vs Vulkan comparisons are visible in-app.

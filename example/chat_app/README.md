@@ -313,6 +313,19 @@ _(Add screenshots here when complete)_
 - On web, multimodal projector loading is eager by default for stability: if an
   mmproj is configured, it is loaded together with the model.
 
+### Android Qwen Notes
+
+- On recent Pixel-class Android devices, Qwen3.5 `0.8B` and `2B` currently run
+  faster in `CPU` mode than `Vulkan` in this app, so the Android preset flow now
+  prefers `CPU` for those two models.
+- Qwen3.5 `4B` is closer: `CPU` still wins on short prompts, but `Vulkan` is now
+  much faster than before and may be worth comparing for longer generations.
+- Runtime chips now include native llama.cpp timing breakdowns: `p_eval`,
+  `eval`, `sample`, and `reuse`.
+- Android text-only chat is stable even when `mmproj` is loaded.
+- Android real image prompting is currently recommended in `CPU` mode for
+  Qwen3.5 `0.8B`; `Vulkan` multimodal is still not reliable enough.
+
 ### Hugging Face static deployment (CI)
 
 - Workflow: `.github/workflows/chat_app_hf_static_deploy.yml`
