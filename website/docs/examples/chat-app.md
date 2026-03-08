@@ -42,3 +42,6 @@ validation and otherwise prefers CDN assets with local fallback.
   the fastest verified path on the maintainer Pixel test device.
 - Runtime chips expose native llama.cpp timing breakdowns (`p_eval`, `eval`,
   `sample`, `reuse`) so Android CPU vs Vulkan comparisons are visible in-app.
+- For general model/backend tuning workflow, use
+  [Performance Tuning](../guides/performance-tuning) rather than treating these
+  example defaults as universal rules.
