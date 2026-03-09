@@ -1,5 +1,6 @@
 ---
 title: Recent Releases
+description: Review recent llamadart release highlights and jump to the canonical changelog for full release notes.
 ---
 
 For canonical full release notes, use:

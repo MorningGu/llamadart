@@ -1,5 +1,7 @@
 ---
 title: Runtime Ownership Boundaries
+description: Understand which repository owns native runtime code, web bridge behavior, and Dart integration changes.
+unlisted: true
 ---
 
 `llamadart` follows a zero-patch strategy for upstream runtime ownership.

@@ -1,5 +1,6 @@
 ---
 title: Installation
+description: Install llamadart, add the package to your app, and understand the native runtime bundle setup on first run.
 ---
 
 ## Prerequisites

@@ -1,5 +1,6 @@
 ---
 title: Chat App Example
+description: Explore the production-style Flutter chat app example with model downloads, runtime controls, and streaming UX.
 ---
 
 Path: `example/chat_app`

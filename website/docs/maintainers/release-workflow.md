@@ -1,5 +1,7 @@
 ---
 title: Release Checklist
+description: Use this checklist to cut a llamadart release, snapshot docs, and verify the published artifacts afterward.
+unlisted: true
 ---
 
 Use this checklist when releasing `llamadart`.

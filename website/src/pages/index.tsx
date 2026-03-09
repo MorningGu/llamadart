@@ -1,3 +1,4 @@
+import Head from '@docusaurus/Head';
 import Layout from '@theme/Layout';
 import Link from '@docusaurus/Link';
 import CodeBlock from '@theme/CodeBlock';
@@ -96,12 +97,41 @@ const maintainerCards: LandingCard[] = [
   }
 ];
 
+const siteUrl = 'https://llamadart.leehack.com';
+const socialCardUrl = `${siteUrl}/img/social-card.png`;
+const homepageSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareSourceCode',
+  name: 'llamadart',
+  description:
+    'Run GGUF models locally from Dart and Flutter across native and web.',
+  codeRepository: 'https://github.com/leehack/llamadart',
+  license: 'https://github.com/leehack/llamadart/blob/main/LICENSE',
+  programmingLanguage: 'Dart',
+  runtimePlatform: ['Android', 'iOS', 'macOS', 'Linux', 'Windows', 'Web'],
+  image: socialCardUrl,
+  url: siteUrl,
+  sameAs: [
+    'https://github.com/leehack/llamadart',
+    'https://pub.dev/packages/llamadart'
+  ]
+};
+
 export default function Home(): JSX.Element {
   return (
     <Layout
       title="llamadart documentation"
-      description="Run GGUF models locally from Dart and Flutter"
+      description="Run GGUF models locally from Dart and Flutter across Android, iOS, macOS, Linux, Windows, and web."
     >
+      <Head>
+        <meta
+          name="keywords"
+          content="llamadart, Dart, Flutter, llama.cpp, GGUF, local inference, on-device AI"
+        />
+        <script type="application/ld+json">
+          {JSON.stringify(homepageSchema)}
+        </script>
+      </Head>
       <main className="landingRoot">
         <section className="heroShell">
           <div className="heroLeft">

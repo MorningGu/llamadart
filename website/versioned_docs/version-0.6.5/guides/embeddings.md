@@ -1,5 +1,6 @@
 ---
 title: Embeddings
+description: Generate local embeddings with llamadart, understand backend support, and build retrieval-style workflows.
 ---
 
 `llamadart` supports local embedding generation through `LlamaEngine` on
