@@ -1,3 +1,4 @@
+import Head from '@docusaurus/Head';
 import Layout from '@theme/Layout';
 import {useEffect} from 'react';
 
@@ -10,6 +11,10 @@ export default function ApiRedirectPage(): JSX.Element {
 
   return (
     <Layout title="API Reference" description="llamadart API docs on pub.dev">
+      <Head>
+        <meta name="robots" content="noindex, nofollow" />
+        <meta httpEquiv="refresh" content={`0;url=${pubDevApiDocsUrl}`} />
+      </Head>
       <main className="homeContainer">
         <section className="heroPanel">
           <h1>API Reference</h1>

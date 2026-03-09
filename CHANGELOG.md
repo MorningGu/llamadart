@@ -1,5 +1,18 @@
 ## Unreleased
 
+* **Runtime syncs**:
+  * Updated native hook pinning to `leehack/llamadart-native@b8216`.
+  * Updated default web bridge asset pinning to `leehack/llama-web-bridge-assets@v0.1.10` (llama.cpp `b8216`).
+* **Qwen3.5 runtime stabilization (Android + Web)**:
+  * Switched bundled Qwen3.5 presets to Unsloth `Q4_K_M` GGUFs across the example catalog and tooling.
+  * Added Android-native perf diagnostics chips (`p_eval`, `eval`, `sample`, `reuse`) backed by llama.cpp context timings with manual timing fallback when built-in counters report zero.
+  * Restored a targeted Android Vulkan fast path for local Qwen3.5 `0.8B` / `2B` / `4B` models by re-enabling KQV/op-offload/flash-attention where stable.
+  * Updated Android chat app defaults to prefer CPU for Qwen3.5 `0.8B` and `2B`, and reduced Android `0.8B` context to `2048` for lower first-token latency.
+  * Hardened Android multimodal handling by downscaling staged images in the chat app and forcing Qwen3.5 `0.8B` projector work onto CPU on Android.
+  * Fixed WebGPU Qwen prompt/control-token handling and committed companion bridge-side streaming/multimodal fixes required by the local chat app runtime.
+
+## 0.6.5
+
 * **Embedding API (native backend capability)**:
   * Added `LlamaEngine.embed(...)` and `LlamaEngine.embedBatch(...)` for direct vector generation.
   * Added optional backend capability interface `BackendEmbeddings` for custom backend implementers.
@@ -15,13 +28,19 @@
   * Added `tool/testing/native_embedding_sweep.dart` to run max-seq sweeps and dump CSV speedup reports for plotting.
 * **Web bridge sync**:
   * Added WebGPU bridge embedding APIs and wired web backend support for `LlamaEngine.embed(...)` / `embedBatch(...)`.
-  * Updated default web bridge asset pinning to `leehack/llama-web-bridge-assets@v0.1.7` (built against llama.cpp `b8157`).
-  * Validated the `v0.1.7` bridge bundle through local fetch-script checksum verification.
+  * Updated default web bridge asset pinning to `leehack/llama-web-bridge-assets@v0.1.8`.
+  * Validated the `v0.1.8` bridge bundle through local fetch-script checksum verification.
+* **WebGPU runtime tuning + multimodal stability (chat app/web)**:
+  * Reduced bridge log noise and improved runtime profile diagnostics for web sessions.
+  * Stabilized multimodal backend switching using resolved runtime mode behavior and added an E2E regression gate.
+  * Tuned streaming/typewriter pacing and token callback overhead to improve incremental render smoothness.
+  * Added GPU-path multimodal image-size capping to reduce runtime pressure on large image inputs.
 * **Chat app model catalog + stability**:
   * Updated `example/chat_app` recommended Qwen presets to the Qwen3.5 lineup (`0.8B`, `2B`, `4B`, `9B`) and removed older Qwen2.5/Qwen3 defaults from the in-app library.
   * Added multimodal projector (`mmproj`) wiring for Qwen3.5 model cards and tuned safer multimodal defaults (`contextSize: 8192`, `maxTokens: 1024`).
   * Fixed Flutter text paint crashes caused by malformed UTF-16 streaming boundaries by aligning incremental reveal to surrogate-pair boundaries and sanitizing text/tool payload rendering paths.
   * Added sanitizer unit coverage and refreshed chat-app README architecture/troubleshooting sections for multimodal and UTF-16 guidance.
+* **Compatibility note**: no public API breaking changes in `0.6.5`.
 
 ## 0.6.4
 

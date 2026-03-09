@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
@@ -39,6 +42,11 @@ class ChatProvider extends ChangeNotifier {
   static const Duration _settingsSaveDebounceDelay = Duration(
     milliseconds: 220,
   );
+  static const int _androidMultimodalMaxImageEdge = 384;
+  static const String _androidDebugImagePath = String.fromEnvironment(
+    'LLAMADART_CHAT_APP_DEBUG_IMAGE_PATH',
+    defaultValue: '',
+  );
 
   final ChatService _chatService;
   final ChatGenerationService _chatGenerationService;
@@ -56,6 +64,7 @@ class ChatProvider extends ChangeNotifier {
   String _activeConversationId = '';
   String? _loadedModelPath;
   String? _loadedMmprojPath;
+  bool _mmprojLoaded = false;
 
   // Chat session for stateful conversation
   ChatSession? _session;
@@ -83,9 +92,23 @@ class ChatProvider extends ChangeNotifier {
   bool _isPruning = false;
   int? _runtimeGpuLayers;
   int? _runtimeThreads;
+  int? _runtimeThreadPoolSize;
+  String? _runtimeExecution;
+  String? _runtimeCoreVariant;
+  String? _runtimeWorkerFallbackReason;
+  String? _runtimeNotes;
+  String? _runtimeModelSource;
+  String? _runtimeModelCacheState;
   int? _lastFirstTokenLatencyMs;
   int? _lastGenerationLatencyMs;
   double? _lastTokensPerSecond;
+  double? _lastDecodeTokensPerSecond;
+  int? _lastNativePromptEvalMs;
+  int? _lastNativeEvalMs;
+  int? _lastNativeSampleMs;
+  int? _lastNativePromptEvalTokens;
+  int? _lastNativeEvalTokens;
+  int? _lastNativeReusedGraphs;
 
   List<String> _availableDevices = [];
 
@@ -129,9 +152,28 @@ class ChatProvider extends ChangeNotifier {
   List<String> get availableDevices => _availableDevices;
   int? get runtimeGpuLayers => _runtimeGpuLayers;
   int? get runtimeThreads => _runtimeThreads;
+  int? get runtimeThreadPoolSize => _runtimeThreadPoolSize;
+  String? get runtimeExecution => _runtimeExecution;
+  String? get runtimeCoreVariant => _runtimeCoreVariant;
+  String? get runtimeWorkerFallbackReason => _runtimeWorkerFallbackReason;
+  String? get runtimeNotes => _runtimeNotes;
+  String? get runtimeModelSource => _runtimeModelSource;
+  String? get runtimeModelCacheState => _runtimeModelCacheState;
   int? get lastFirstTokenLatencyMs => _lastFirstTokenLatencyMs;
   int? get lastGenerationLatencyMs => _lastGenerationLatencyMs;
   double? get lastTokensPerSecond => _lastTokensPerSecond;
+  double? get lastDecodeTokensPerSecond => _lastDecodeTokensPerSecond;
+  int? get lastNativePromptEvalMs => _lastNativePromptEvalMs;
+  int? get lastNativeEvalMs => _lastNativeEvalMs;
+  int? get lastNativeSampleMs => _lastNativeSampleMs;
+  int? get lastNativePromptEvalTokens => _lastNativePromptEvalTokens;
+  int? get lastNativeEvalTokens => _lastNativeEvalTokens;
+  int? get lastNativeReusedGraphs => _lastNativeReusedGraphs;
+  bool get hasConfiguredMmproj =>
+      (_settings.mmprojPath ?? '').trim().isNotEmpty;
+  bool get isMmprojLoaded => _mmprojLoaded;
+  bool get canAttachMedia =>
+      _supportsVision || _supportsAudio || (_isLoaded && hasConfiguredMmproj);
   String get activeModelName {
     final modelPath = _settings.modelPath;
     if (modelPath == null || modelPath.isEmpty) {
@@ -311,6 +353,18 @@ class ChatProvider extends ChangeNotifier {
     if (targetModelPath == null || targetModelPath.isEmpty) {
       _session = null;
       _isLoaded = false;
+      _supportsVision = false;
+      _supportsAudio = false;
+      _mmprojLoaded = false;
+      _runtimeGpuLayers = null;
+      _runtimeThreads = null;
+      _runtimeThreadPoolSize = null;
+      _runtimeExecution = null;
+      _runtimeCoreVariant = null;
+      _runtimeWorkerFallbackReason = null;
+      _runtimeNotes = null;
+      _runtimeModelSource = null;
+      _runtimeModelCacheState = null;
       notifyListeners();
       return;
     }
@@ -428,6 +482,18 @@ class ChatProvider extends ChangeNotifier {
     _error = null;
     _loadingProgress = 0.0;
     _activeBackend = 'Loading model...';
+    _supportsVision = false;
+    _supportsAudio = false;
+    _mmprojLoaded = false;
+    _runtimeGpuLayers = null;
+    _runtimeThreads = null;
+    _runtimeThreadPoolSize = null;
+    _runtimeExecution = null;
+    _runtimeCoreVariant = null;
+    _runtimeWorkerFallbackReason = null;
+    _runtimeNotes = null;
+    _runtimeModelSource = null;
+    _runtimeModelCacheState = null;
     notifyListeners();
 
     DateTime lastProgressNotifyAt = DateTime.now();
@@ -487,11 +553,15 @@ class ChatProvider extends ChangeNotifier {
     updateLoadingUi(0.1);
 
     try {
+      final eagerLoadMmproj =
+          (_settings.mmprojPath?.trim().isNotEmpty ?? false);
+
       await _chatService.engine.setDartLogLevel(_settings.logLevel);
       await _chatService.engine.setNativeLogLevel(_settings.nativeLogLevel);
       updateLoadingUi(0.14);
       await _chatService.init(
         _settings,
+        eagerLoadMultimodalProjector: eagerLoadMmproj,
         onProgress: (progress) {
           final normalized = progress.clamp(0.0, 1.0);
           final staged = 0.14 + (normalized * 0.7);
@@ -538,9 +608,18 @@ class ChatProvider extends ChangeNotifier {
       }
 
       _contextLimit = await _chatService.engine.getContextSize();
-      _supportsVision = await _chatService.engine.supportsVision;
-      _supportsAudio = await _chatService.engine.supportsAudio;
+      _mmprojLoaded =
+          eagerLoadMmproj && (_settings.mmprojPath?.trim().isNotEmpty ?? false);
       final metadata = await _chatService.engine.getMetadata();
+      final inferredCapabilities = _inferMultimodalCapabilities(metadata);
+      final runtimeSupportsVision = await _chatService.engine.supportsVision;
+      final runtimeSupportsAudio = await _chatService.engine.supportsAudio;
+      _supportsVision =
+          runtimeSupportsVision ||
+          (!_mmprojLoaded && inferredCapabilities.supportsVision);
+      _supportsAudio =
+          runtimeSupportsAudio ||
+          (!_mmprojLoaded && inferredCapabilities.supportsAudio);
       _updateToolTemplateSupport(metadata);
       updateLoadingUi(0.9);
 
@@ -551,6 +630,24 @@ class ChatProvider extends ChangeNotifier {
           await _getResolvedGpuLayersBestEffort() ??
           runtimeDiagnostics.runtimeGpuLayers;
       _runtimeThreads = runtimeDiagnostics.runtimeThreads;
+      _runtimeThreadPoolSize = runtimeDiagnostics.runtimeThreadPoolSize;
+      _runtimeExecution = runtimeDiagnostics.runtimeExecution;
+      _runtimeCoreVariant = runtimeDiagnostics.runtimeCoreVariant;
+      _runtimeWorkerFallbackReason =
+          runtimeDiagnostics.runtimeWorkerFallbackReason;
+      _runtimeNotes = runtimeDiagnostics.runtimeNotes;
+      _runtimeModelSource = runtimeDiagnostics.runtimeModelSource;
+      _runtimeModelCacheState = runtimeDiagnostics.runtimeModelCacheState;
+      _publishWebRuntimeDiagnosticsHints();
+
+      if (!kIsWeb &&
+          defaultTargetPlatform == TargetPlatform.android &&
+          (_runtimeGpuLayers ?? 0) > 0 &&
+          _activeBackend.toUpperCase().contains('VULKAN')) {
+        _addInfoMessage(
+          'Android Vulkan stability mode is active. Prompt batching is reduced to avoid driver crashes, so first-token latency can be higher.',
+        );
+      }
 
       _addInfoMessage('Model loaded successfully! Ready to chat.');
       _isLoaded = true;
@@ -565,6 +662,9 @@ class ChatProvider extends ChangeNotifier {
       _error = e.toString();
       _loadedModelPath = null;
       _loadedMmprojPath = null;
+      _supportsVision = false;
+      _supportsAudio = false;
+      _mmprojLoaded = false;
     } finally {
       _isInitializing = false;
       notifyListeners();
@@ -579,6 +679,13 @@ class ChatProvider extends ChangeNotifier {
     _isGenerating = false;
     _stagedParts.clear();
     _lastTokensPerSecond = null;
+    _lastDecodeTokensPerSecond = null;
+    _lastNativePromptEvalMs = null;
+    _lastNativeEvalMs = null;
+    _lastNativeSampleMs = null;
+    _lastNativePromptEvalTokens = null;
+    _lastNativeEvalTokens = null;
+    _lastNativeReusedGraphs = null;
     _messages.add(
       ChatMessage(
         text: 'Conversation cleared. Ready for a new topic!',
@@ -613,6 +720,10 @@ class ChatProvider extends ChangeNotifier {
     // Don't add text here - ChatSession.chat will handle it
 
     if (parts.isEmpty && text.isEmpty) return;
+
+    if (!await _ensureMultimodalProjectorForMedia(parts)) {
+      return;
+    }
 
     // For UI display, include text in parts
     final displayParts = [
@@ -660,6 +771,100 @@ class ChatProvider extends ChangeNotifier {
         'they are needed. If no tool is needed, answer directly.';
   }
 
+  bool _containsAnyNeedle(String haystack, List<String> needles) {
+    for (final needle in needles) {
+      if (haystack.contains(needle)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  ({bool supportsVision, bool supportsAudio}) _inferMultimodalCapabilities(
+    Map<String, String> metadata,
+  ) {
+    final mmprojPath = (_settings.mmprojPath ?? '').trim();
+    if (mmprojPath.isEmpty) {
+      return (supportsVision: false, supportsAudio: false);
+    }
+
+    final modelHint =
+        '${_settings.modelPath ?? ''} ${_settings.mmprojPath ?? ''}'
+            .toLowerCase();
+    final metadataHint = metadata.entries
+        .map((entry) => '${entry.key}:${entry.value}')
+        .join(' ')
+        .toLowerCase();
+
+    const audioNeedles = <String>[
+      'ultravox',
+      'audio',
+      'speech',
+      'whisper',
+      'conformer',
+      'asr',
+    ];
+    const visionNeedles = <String>[
+      'vision',
+      'image',
+      'qwen2vl',
+      'qwen3vl',
+      'llava',
+      'glm4v',
+      'internvl',
+      'pixtral',
+      'cogvlm',
+      'minicpmv',
+      'smolvlm',
+      'lfm2-vl',
+    ];
+
+    final supportsAudio =
+        _containsAnyNeedle(modelHint, audioNeedles) ||
+        _containsAnyNeedle(metadataHint, audioNeedles);
+    final supportsVision =
+        _containsAnyNeedle(modelHint, visionNeedles) ||
+        _containsAnyNeedle(metadataHint, visionNeedles) ||
+        !supportsAudio;
+
+    return (supportsVision: supportsVision, supportsAudio: supportsAudio);
+  }
+
+  Future<bool> _ensureMultimodalProjectorForMedia(
+    List<LlamaContentPart> parts,
+  ) async {
+    final needsMultimodal = parts.any(
+      (part) => part is LlamaImageContent || part is LlamaAudioContent,
+    );
+    if (!needsMultimodal) {
+      return true;
+    }
+
+    if (_mmprojLoaded) {
+      final runtimeSupportsVision = await _chatService.engine.supportsVision;
+      final runtimeSupportsAudio = await _chatService.engine.supportsAudio;
+      if (runtimeSupportsVision || runtimeSupportsAudio) {
+        _supportsVision = runtimeSupportsVision;
+        _supportsAudio = runtimeSupportsAudio;
+        return true;
+      }
+
+      _mmprojLoaded = false;
+    }
+
+    if (!hasConfiguredMmproj) {
+      _addInfoMessage(
+        'This model was loaded without an mmproj. Configure a matching mmproj in Manage models to send media.',
+      );
+      notifyListeners();
+      return false;
+    }
+
+    return loadConfiguredMmproj(
+      successMessage: 'Multimodal projector loaded on demand.',
+    );
+  }
+
   List<ToolDefinition>? _toolsForTurn() {
     if (!_settings.toolsEnabled || !_templateSupportsTools) {
       return null;
@@ -687,9 +892,12 @@ class ChatProvider extends ChangeNotifier {
       generatedTokens: 0,
       firstTokenLatencyMs: null,
       elapsedMs: 0,
+      decodeElapsedMs: 0,
     );
     _lastFirstTokenLatencyMs = null;
     final toolsForTurn = _toolsForTurn();
+    var hasMediaPartsInTurn = false;
+    var isCpuMultimodalTurn = false;
 
     try {
       _messages.add(ChatMessage(text: "...", isUser: false));
@@ -702,43 +910,85 @@ class ChatProvider extends ChangeNotifier {
         text: text,
         stagedParts: parts,
       );
+      hasMediaPartsInTurn = chatParts.any(
+        (part) => part is LlamaImageContent || part is LlamaAudioContent,
+      );
+      final resolvedGpuLayers = _runtimeGpuLayers;
+      final runtimeLooksCpu = resolvedGpuLayers != null
+          ? resolvedGpuLayers <= 0
+          : _settings.preferredBackend == GpuBackend.cpu;
+      isCpuMultimodalTurn = hasMediaPartsInTurn && runtimeLooksCpu;
+      final effectiveParams = isCpuMultimodalTurn
+          ? params.copyWith(maxTokens: math.min(params.maxTokens, 192))
+          : params;
+      final streamStallTimeout = kIsWeb
+          ? Duration(
+              seconds: hasMediaPartsInTurn
+                  ? (isCpuMultimodalTurn ? 150 : 120)
+                  : 75,
+            )
+          : const Duration(seconds: 180);
+      final cpuMultimodalWallSeconds = math.max(
+        180,
+        math.min(420, effectiveParams.maxTokens * 2),
+      );
+      final streamWallTimeout = kIsWeb
+          ? Duration(
+              seconds: hasMediaPartsInTurn
+                  ? (isCpuMultimodalTurn ? cpuMultimodalWallSeconds : 180)
+                  : 130,
+            )
+          : const Duration(seconds: 240);
 
       final templateKwargs = _thinkingTemplateKwargs();
       _session!.systemPrompt = _sessionSystemPrompt();
 
-      generationResult = await _chatGenerationService.consumeStream(
-        stream: _session!.create(
-          chatParts,
-          params: params,
-          tools: toolsForTurn,
-          toolChoice: toolsForTurn != null ? ToolChoice.auto : null,
-          enableThinking: _settings.thinkingEnabled,
-          chatTemplateKwargs: templateKwargs,
-        ),
-        thinkingEnabled: _settings.thinkingEnabled,
-        uiNotifyIntervalMs: kIsWeb ? 42 : 16,
-        cleanResponse: _chatService.cleanResponse,
-        shouldContinue: () => _isGenerating,
-        onUpdate: (update) {
-          _currentTokens += update.generatedTokenDelta;
+      generationResult = await _chatGenerationService
+          .consumeStream(
+            stream: _session!.create(
+              chatParts,
+              params: effectiveParams,
+              tools: toolsForTurn,
+              toolChoice: toolsForTurn != null ? ToolChoice.auto : null,
+              enableThinking: _settings.thinkingEnabled,
+              chatTemplateKwargs: templateKwargs,
+            ),
+            thinkingEnabled: _settings.thinkingEnabled,
+            uiNotifyIntervalMs: 16,
+            cleanResponse: (response) => response,
+            shouldContinue: () => _isGenerating,
+            stallTimeout: streamStallTimeout,
+            onUpdate: (update) {
+              _currentTokens += update.generatedTokenDelta;
 
-          final shouldRefreshStreamingMessage =
-              update.shouldNotify || update.generatedTokenDelta == 0;
-          var streamingMessageChanged = false;
-          if (shouldRefreshStreamingMessage) {
-            streamingMessageChanged = _updateStreamingAssistantMessage(
-              cleanText: update.cleanText,
-              fullThinking: update.fullThinking,
-            );
-          }
+              final shouldRefreshStreamingMessage =
+                  update.shouldNotify || update.generatedTokenDelta == 0;
+              var streamingMessageChanged = false;
+              if (shouldRefreshStreamingMessage) {
+                streamingMessageChanged = _updateStreamingAssistantMessage(
+                  cleanText: update.cleanText,
+                  fullThinking: update.fullThinking,
+                );
+              }
 
-          if (update.shouldNotify) {
-            if (streamingMessageChanged || update.generatedTokenDelta != 0) {
-              notifyListeners();
-            }
-          }
-        },
-      );
+              if (update.shouldNotify) {
+                if (streamingMessageChanged ||
+                    update.generatedTokenDelta != 0) {
+                  notifyListeners();
+                }
+              }
+            },
+          )
+          .timeout(
+            streamWallTimeout,
+            onTimeout: () {
+              _chatService.cancelGeneration();
+              throw TimeoutException(
+                'Generation exceeded wall timeout.',
+                streamWallTimeout,
+              );
+            },
+          );
 
       final fullResponse = generationResult.fullResponse;
       final fullThinking = generationResult.fullThinking;
@@ -814,7 +1064,40 @@ class ChatProvider extends ChangeNotifier {
       }
     } catch (e) {
       final errorText = e.toString();
-      if (errorText.contains('mtmd_tokenize failed')) {
+      if (e is TimeoutException) {
+        _chatService.cancelGeneration();
+        _messages.add(
+          ChatMessage(
+            text: hasMediaPartsInTurn && isCpuMultimodalTurn
+                ? 'CPU multimodal generation timed out before completion. '
+                      'Try lowering Max generated tokens or sending a smaller image and retrying.'
+                : 'Generation timed out waiting for model output. The request was cancelled. '
+                      'Try lowering Max generated tokens for multimodal prompts and resending.',
+            isUser: false,
+            isInfo: true,
+          ),
+        );
+      } else if (errorText.contains('Multimodal worker')) {
+        _messages.add(
+          ChatMessage(
+            text:
+                'Multimodal worker failed in this browser session. '
+                'Reload model and retry with a smaller image, or disable mmproj for text-only chat.',
+            isUser: false,
+            isInfo: true,
+          ),
+        );
+      } else if (errorText.contains('CPU multimodal request failed')) {
+        _messages.add(
+          ChatMessage(
+            text:
+                'CPU multimodal inference failed before producing tokens. '
+                'Reload model and retry with a smaller image.',
+            isUser: false,
+            isInfo: true,
+          ),
+        );
+      } else if (errorText.contains('mtmd_tokenize failed')) {
         _messages.add(
           ChatMessage(
             text:
@@ -830,10 +1113,43 @@ class ChatProvider extends ChangeNotifier {
     } finally {
       final generatedTokens = generationResult.generatedTokens;
       final elapsedMs = generationResult.elapsedMs;
+      final decodeElapsedMs = generationResult.decodeElapsedMs;
       if (generatedTokens > 0 && elapsedMs > 0) {
         _lastTokensPerSecond = generatedTokens / (elapsedMs / 1000);
       } else {
         _lastTokensPerSecond = null;
+      }
+
+      if (generatedTokens > 0 && decodeElapsedMs > 0) {
+        _lastDecodeTokensPerSecond = generatedTokens / (decodeElapsedMs / 1000);
+      } else {
+        _lastDecodeTokensPerSecond = null;
+      }
+
+      try {
+        final perf = await _chatService.engine.getPerformanceContext();
+        if (perf != null) {
+          _lastNativePromptEvalMs = perf.promptEvalMs.round();
+          _lastNativeEvalMs = perf.evalMs.round();
+          _lastNativeSampleMs = perf.sampleMs.round();
+          _lastNativePromptEvalTokens = perf.promptEvalTokens;
+          _lastNativeEvalTokens = perf.evalTokens;
+          _lastNativeReusedGraphs = perf.reusedGraphs;
+        } else {
+          _lastNativePromptEvalMs = null;
+          _lastNativeEvalMs = null;
+          _lastNativeSampleMs = null;
+          _lastNativePromptEvalTokens = null;
+          _lastNativeEvalTokens = null;
+          _lastNativeReusedGraphs = null;
+        }
+      } catch (_) {
+        _lastNativePromptEvalMs = null;
+        _lastNativeEvalMs = null;
+        _lastNativeSampleMs = null;
+        _lastNativePromptEvalTokens = null;
+        _lastNativeEvalTokens = null;
+        _lastNativeReusedGraphs = null;
       }
 
       if (generationResult.firstTokenLatencyMs != null ||
@@ -886,6 +1202,78 @@ class ChatProvider extends ChangeNotifier {
     _syncActiveConversationSnapshot();
   }
 
+  void _publishWebRuntimeDiagnosticsHints() {
+    if (!kIsWeb) {
+      return;
+    }
+
+    final runtimeNotes = (_runtimeNotes ?? '')
+        .split(';')
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet();
+
+    if (runtimeNotes.contains('threads_capped_no_coi')) {
+      _addInfoMessage(
+        'Web runtime is not cross-origin isolated, so inference threads are capped to 1. '
+        'Enable COOP/COEP headers for better throughput.',
+      );
+    }
+
+    if (runtimeNotes.contains('threads_capped_no_pthread')) {
+      _addInfoMessage(
+        'Loaded bridge core does not include pthread support, so runtime threads are capped to 1. '
+        'Use pthread-enabled bridge assets for faster text and multimodal generation.',
+      );
+    }
+
+    final runtimeThreads = _runtimeThreads;
+    if (runtimeThreads != null && runtimeThreads <= 1) {
+      if (_settings.thinkingEnabled && _settings.contextSize > 4096) {
+        _addInfoMessage(
+          'Single-thread web runtime detected. For faster text generation, disable thinking and lower context to 4096.',
+        );
+      } else if (_settings.thinkingEnabled) {
+        _addInfoMessage(
+          'Single-thread web runtime detected. Disable thinking mode to improve text throughput.',
+        );
+      } else if (_settings.contextSize > 4096) {
+        _addInfoMessage(
+          'Single-thread web runtime detected. Reducing context size to 4096 usually improves throughput.',
+        );
+      }
+    }
+
+    final runtimeGpuLayers = _runtimeGpuLayers;
+    if (_settings.preferredBackend != GpuBackend.cpu &&
+        runtimeGpuLayers != null &&
+        runtimeGpuLayers <= 0) {
+      _addInfoMessage(
+        'Web runtime is currently operating in CPU mode (resolved GPU layers = 0). '
+        'Reload model after backend changes or lower context/GPU layers to avoid fallback.',
+      );
+    }
+
+    final poolCapNote = runtimeNotes.firstWhere(
+      (note) => note.startsWith('threads_capped_pool:'),
+      orElse: () => '',
+    );
+    if (poolCapNote.isNotEmpty) {
+      final poolSize = poolCapNote.split(':').last;
+      _addInfoMessage(
+        'Web runtime threads were capped to $poolSize to match pthread pool size and avoid deadlock risks.',
+      );
+    }
+
+    final workerFallbackReason = _runtimeWorkerFallbackReason;
+    if (workerFallbackReason != null && workerFallbackReason.isNotEmpty) {
+      _addInfoMessage(
+        'Web bridge worker fallback detected ($workerFallbackReason). '
+        'Model load/generation may be slower in this mode.',
+      );
+    }
+  }
+
   void _addStagedPart(LlamaContentPart part) {
     _stagedParts.add(part);
     notifyListeners();
@@ -899,9 +1287,27 @@ class ChatProvider extends ChangeNotifier {
   }
 
   Future<void> pickImage() async {
+    if (!kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.android &&
+        _androidDebugImagePath.isNotEmpty) {
+      final prepared = await _prepareAndroidImagePart(_androidDebugImagePath);
+      if (prepared != null) {
+        _addStagedPart(prepared);
+        return;
+      }
+    }
+
     await _pickMediaPart(
       type: FileType.image,
-      fromPath: (path) => LlamaImageContent(path: path),
+      fromPath: (path) async {
+        if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+          final prepared = await _prepareAndroidImagePart(path);
+          if (prepared != null) {
+            return prepared;
+          }
+        }
+        return LlamaImageContent(path: path);
+      },
       fromBytes: (bytes) => LlamaImageContent(bytes: bytes),
       browserReadError:
           'Could not read image bytes in browser. Try a different image file.',
@@ -913,7 +1319,7 @@ class ChatProvider extends ChangeNotifier {
   Future<void> pickAudio() async {
     await _pickMediaPart(
       type: FileType.audio,
-      fromPath: (path) => LlamaAudioContent(path: path),
+      fromPath: (path) async => LlamaAudioContent(path: path),
       fromBytes: (bytes) => LlamaAudioContent(bytes: bytes),
       browserReadError:
           'Could not read audio bytes in browser. Try a different audio file.',
@@ -924,7 +1330,7 @@ class ChatProvider extends ChangeNotifier {
 
   Future<void> _pickMediaPart({
     required FileType type,
-    required LlamaContentPart Function(String path) fromPath,
+    required Future<LlamaContentPart> Function(String path) fromPath,
     required LlamaContentPart Function(Uint8List bytes) fromBytes,
     required String browserReadError,
     required String fileReadError,
@@ -955,7 +1361,7 @@ class ChatProvider extends ChangeNotifier {
 
       final path = file.path;
       if (path != null && path.isNotEmpty) {
-        _addStagedPart(fromPath(path));
+        _addStagedPart(await fromPath(path));
         return;
       }
 
@@ -969,6 +1375,68 @@ class ChatProvider extends ChangeNotifier {
       notifyListeners();
     } catch (error) {
       debugPrint('Error picking $debugLabel: $error');
+    }
+  }
+
+  Future<LlamaImageContent?> _prepareAndroidImagePart(String path) async {
+    try {
+      final bytes = await File(path).readAsBytes();
+      if (bytes.isEmpty) {
+        return null;
+      }
+
+      final resizedBytes = await _downscaleImageBytesIfNeeded(
+        bytes,
+        maxEdge: _androidMultimodalMaxImageEdge,
+      );
+      return LlamaImageContent(bytes: resizedBytes);
+    } catch (error) {
+      debugPrint('Error preparing Android image bytes: $error');
+      return null;
+    }
+  }
+
+  Future<Uint8List> _downscaleImageBytesIfNeeded(
+    Uint8List bytes, {
+    required int maxEdge,
+  }) async {
+    ui.Codec? probeCodec;
+    ui.Codec? resizedCodec;
+    ui.Image? probedImage;
+    ui.Image? resizedImage;
+
+    try {
+      probeCodec = await ui.instantiateImageCodec(bytes);
+      final probeFrame = await probeCodec.getNextFrame();
+      probedImage = probeFrame.image;
+      final width = probedImage.width;
+      final height = probedImage.height;
+      final longestEdge = math.max(width, height);
+      if (longestEdge <= maxEdge) {
+        return bytes;
+      }
+
+      final scale = maxEdge / longestEdge;
+      final targetWidth = math.max(1, (width * scale).round());
+      final targetHeight = math.max(1, (height * scale).round());
+      resizedCodec = await ui.instantiateImageCodec(
+        bytes,
+        targetWidth: targetWidth,
+        targetHeight: targetHeight,
+      );
+      final resizedFrame = await resizedCodec.getNextFrame();
+      resizedImage = resizedFrame.image;
+      final byteData = await resizedImage.toByteData(
+        format: ui.ImageByteFormat.png,
+      );
+      return byteData?.buffer.asUint8List() ?? bytes;
+    } catch (_) {
+      return bytes;
+    } finally {
+      resizedImage?.dispose();
+      resizedCodec?.dispose();
+      probedImage?.dispose();
+      probeCodec?.dispose();
     }
   }
 
@@ -1102,6 +1570,18 @@ class ChatProvider extends ChangeNotifier {
     _contextLimit = 0;
     _loadedModelPath = null;
     _loadedMmprojPath = null;
+    _supportsVision = false;
+    _supportsAudio = false;
+    _mmprojLoaded = false;
+    _runtimeGpuLayers = null;
+    _runtimeThreads = null;
+    _runtimeThreadPoolSize = null;
+    _runtimeExecution = null;
+    _runtimeCoreVariant = null;
+    _runtimeWorkerFallbackReason = null;
+    _runtimeNotes = null;
+    _runtimeModelSource = null;
+    _runtimeModelCacheState = null;
     _syncActiveConversationSnapshot(touchUpdatedAt: false);
     notifyListeners();
   }
@@ -1114,6 +1594,21 @@ class ChatProvider extends ChangeNotifier {
   void applyModelPreset(DownloadableModel model) {
     final shouldKeepToolsEnabled =
         model.supportsToolCalling && _settings.toolsEnabled;
+    const androidCpuPreferredQwenModels = <String>{
+      'Qwen3.5 0.8B Instruct',
+      'Qwen3.5 2B Instruct',
+    };
+    final shouldUseReducedAndroidContext =
+        !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.android &&
+        model.name == 'Qwen3.5 0.8B Instruct';
+    final shouldPreferCpuOnAndroid =
+        !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.android &&
+        androidCpuPreferredQwenModels.contains(model.name) &&
+        (_settings.preferredBackend == GpuBackend.auto ||
+            _settings.preferredBackend == GpuBackend.vulkan ||
+            _settings.preferredBackend == GpuBackend.cpu);
 
     _updateSettings(
       _settings.copyWith(
@@ -1122,15 +1617,27 @@ class ChatProvider extends ChangeNotifier {
         topP: model.preset.topP,
         minP: model.preset.minP,
         penalty: model.preset.penalty,
-        contextSize: model.preset.contextSize,
+        contextSize: shouldUseReducedAndroidContext
+            ? 2048
+            : model.preset.contextSize,
         maxTokens: model.preset.maxTokens,
-        gpuLayers: model.preset.gpuLayers,
+        gpuLayers: shouldPreferCpuOnAndroid ? 0 : model.preset.gpuLayers,
+        preferredBackend: shouldPreferCpuOnAndroid
+            ? GpuBackend.cpu
+            : _settings.preferredBackend,
         toolsEnabled: shouldKeepToolsEnabled,
         thinkingEnabled: model.preset.thinkingEnabled,
         thinkingBudgetTokens: model.preset.thinkingBudgetTokens,
         singleTurnMode: false,
       ),
     );
+
+    if (shouldPreferCpuOnAndroid) {
+      _addInfoMessage(
+        'On Android, Qwen3.5 0.8B/2B currently run faster and more reliably in CPU mode than Vulkan. You can switch back manually in Inference settings if you want to compare.',
+      );
+      notifyListeners();
+    }
   }
 
   void _updateToolTemplateSupport(Map<String, String> metadata) {
@@ -1200,6 +1707,77 @@ class ChatProvider extends ChangeNotifier {
     _updateSettings(_settings.copyWith(mmprojPath: path));
   }
 
+  Future<bool> loadConfiguredMmproj({
+    String successMessage = 'Multimodal projector loaded.',
+  }) async {
+    final mmprojPath = (_settings.mmprojPath ?? '').trim();
+    if (mmprojPath.isEmpty) {
+      _addInfoMessage(
+        'No mmproj is configured for the active model. Select a multimodal preset or add a matching mmproj first.',
+      );
+      notifyListeners();
+      return false;
+    }
+
+    if (!_isLoaded || !_chatService.engine.isReady) {
+      _addInfoMessage('Load the model first, then enable mmproj.');
+      notifyListeners();
+      return false;
+    }
+
+    if (_mmprojLoaded && _loadedMmprojPath == mmprojPath) {
+      _supportsVision = await _chatService.engine.supportsVision;
+      _supportsAudio = await _chatService.engine.supportsAudio;
+      notifyListeners();
+      return true;
+    }
+
+    try {
+      await _chatService.loadMultimodalProjector(mmprojPath);
+      _mmprojLoaded = true;
+      _loadedMmprojPath = mmprojPath;
+      _supportsVision = await _chatService.engine.supportsVision;
+      _supportsAudio = await _chatService.engine.supportsAudio;
+      _addInfoMessage(successMessage);
+      notifyListeners();
+      return true;
+    } catch (error) {
+      final text = error.toString();
+      _addInfoMessage(
+        text.startsWith('Exception: ') ? text.substring(11) : text,
+      );
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<void> clearMmprojPath() async {
+    if ((_settings.mmprojPath ?? '').isEmpty && !_mmprojLoaded) {
+      return;
+    }
+
+    if (_mmprojLoaded) {
+      try {
+        await _chatService.unloadMultimodalProjector();
+      } catch (error) {
+        debugPrint('Failed to unload active mmproj: $error');
+        _addInfoMessage(
+          'Failed to unload the active mmproj cleanly. Reload the model if text output still looks wrong.',
+        );
+      }
+    }
+
+    _updateSettings(_settings.copyWith(mmprojPath: ''));
+    _loadedMmprojPath = null;
+    _supportsVision = false;
+    _supportsAudio = false;
+    _mmprojLoaded = false;
+    _addInfoMessage(
+      'Switched to text-only mode. Multimodal projector cleared.',
+    );
+    notifyListeners();
+  }
+
   Future<void> updatePreferredBackend(GpuBackend backend) {
     _updateSettings(_settings.copyWith(preferredBackend: backend));
     _messages.add(
@@ -1241,6 +1819,18 @@ class ChatProvider extends ChangeNotifier {
       _isLoaded = false;
       _loadedModelPath = null;
       _loadedMmprojPath = null;
+      _supportsVision = false;
+      _supportsAudio = false;
+      _mmprojLoaded = false;
+      _runtimeGpuLayers = null;
+      _runtimeThreads = null;
+      _runtimeThreadPoolSize = null;
+      _runtimeExecution = null;
+      _runtimeCoreVariant = null;
+      _runtimeWorkerFallbackReason = null;
+      _runtimeNotes = null;
+      _runtimeModelSource = null;
+      _runtimeModelCacheState = null;
       await _chatService.dispose();
     } finally {
       _isShuttingDown = false;

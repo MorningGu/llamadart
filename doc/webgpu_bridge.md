@@ -11,15 +11,15 @@ This document defines the JavaScript contract expected by
 `llamadart` is a bridge consumer. It does not own bridge build/publish
 pipelines.
 
-## Distribution Model (Local First + CDN Fallback)
+## Distribution Model (CDN First + Local Fallback)
 
 `example/chat_app/web/index.html` loads bridge runtime in this order:
 
-1. Local: `./webgpu_bridge/llama_webgpu_bridge.js`
-2. CDN fallback:
+1. CDN:
    `https://cdn.jsdelivr.net/gh/leehack/llama-web-bridge-assets@<tag>/llama_webgpu_bridge.js`
+2. Local fallback: `./webgpu_bridge/llama_webgpu_bridge.js`
 
-Default pinned tag in the example is `v0.1.7`.
+Default pinned tag in the example is `v0.1.10`.
 
 For broader browser coverage in this repository, fetched/local assets are patched
 to a universal Safari-compatible gate by default (`MIN_SAFARI_VERSION=170400`).
@@ -32,7 +32,7 @@ model bytes.
 To vendor pinned assets into local app web files:
 
 ```bash
-WEBGPU_BRIDGE_ASSETS_TAG=v0.1.7 ./scripts/fetch_webgpu_bridge_assets.sh
+WEBGPU_BRIDGE_ASSETS_TAG=v0.1.10 ./scripts/fetch_webgpu_bridge_assets.sh
 ```
 
 Optional compatibility env vars:
@@ -108,7 +108,7 @@ You can override CDN source/version before the bridge loader runs:
 ```html
 <script>
   window.__llamadartBridgeAssetsRepo = 'leehack/llama-web-bridge-assets';
-  window.__llamadartBridgeAssetsTag = 'v0.1.7';
+  window.__llamadartBridgeAssetsTag = 'v0.1.10';
 </script>
 ```
 
@@ -158,9 +158,21 @@ window.LlamaWebGpuBridge = class LlamaWebGpuBridge {
 
 ## Performance Tuning Knobs
 
-- `window.__llamadartBridgeEnableMem64` (default effectively on in chat app)
-  - Set to `false` to force wasm32 preference.
+- `window.__llamadartBridgeEnableMem64` (default effectively off in chat app)
+  - Set to `true` to prefer wasm64 core when available.
 - `window.__llamadartBridgeAllowAutoRemoteFetchBackend`
   - Default `true`.
   - Set to `false` to skip the auto fetch-backed pre-attempt and go straight to
     streamed network staging.
+- `window.__llamadartBridgeRemoteFetchChunkBytes`
+  - Optional positive integer bytes.
+  - Defaults to `4 * 1024 * 1024` in `llamadart` web backend; clamped to
+    `4KiB..16MiB`.
+  - Applies to fetch-backed model loading path.
+- `window.__llamadartBridgeThreadPoolSize`
+  - Optional positive integer thread count hint.
+  - Used by bridge/runtime thread capping to avoid pthread pool exhaustion.
+  - Set this to match your bridge build `PTHREAD_POOL_SIZE` when known.
+- `window.__llamadartBridgeBootstrapVerbose`
+  - Default `false` in chat app bootstrap.
+  - Set to `true` to enable verbose bridge bootstrap `console.*` logs.

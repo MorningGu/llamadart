@@ -23,6 +23,8 @@ jobs:
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      DOCS_GA_MEASUREMENT_ID: ${{ vars.DOCS_GA_MEASUREMENT_ID }}
     steps:
       - uses: actions/checkout@v4
         with:

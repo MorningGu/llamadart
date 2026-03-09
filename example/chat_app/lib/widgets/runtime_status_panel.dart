@@ -10,7 +10,34 @@ class RuntimeStatusPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Selector<
       ChatProvider,
-      (bool, String, String, int, int, double?, int?, int?, int?, int?)
+      (
+        bool,
+        String,
+        String,
+        int,
+        int,
+        double?,
+        double?,
+        int?,
+        int?,
+        int?,
+        int?,
+        int?,
+        int?,
+        int?,
+        int?,
+        int?,
+        int?,
+        int?,
+        bool,
+        bool,
+        String?,
+        String?,
+        String?,
+        String?,
+        String?,
+        String?,
+      )
     >(
       selector: (_, provider) => (
         provider.isReady,
@@ -19,10 +46,26 @@ class RuntimeStatusPanel extends StatelessWidget {
         provider.currentTokens,
         provider.contextLimit,
         provider.lastTokensPerSecond,
+        provider.lastDecodeTokensPerSecond,
         provider.lastFirstTokenLatencyMs,
         provider.lastGenerationLatencyMs,
+        provider.lastNativePromptEvalMs,
+        provider.lastNativeEvalMs,
+        provider.lastNativeSampleMs,
+        provider.lastNativePromptEvalTokens,
+        provider.lastNativeEvalTokens,
+        provider.lastNativeReusedGraphs,
         provider.runtimeGpuLayers,
         provider.runtimeThreads,
+        provider.runtimeThreadPoolSize,
+        provider.hasConfiguredMmproj,
+        provider.isMmprojLoaded,
+        provider.runtimeExecution,
+        provider.runtimeCoreVariant,
+        provider.runtimeWorkerFallbackReason,
+        provider.runtimeModelSource,
+        provider.runtimeModelCacheState,
+        provider.runtimeNotes,
       ),
       builder: (context, data, _) {
         final (
@@ -32,10 +75,26 @@ class RuntimeStatusPanel extends StatelessWidget {
           currentTokens,
           contextLimit,
           tokensPerSecond,
+          decodeTokensPerSecond,
           firstTokenLatencyMs,
           generationLatencyMs,
+          nativePromptEvalMs,
+          nativeEvalMs,
+          nativeSampleMs,
+          nativePromptEvalTokens,
+          nativeEvalTokens,
+          nativeReusedGraphs,
           runtimeGpuLayers,
           runtimeThreads,
+          runtimeThreadPoolSize,
+          hasConfiguredMmproj,
+          isMmprojLoaded,
+          runtimeExecution,
+          runtimeCoreVariant,
+          runtimeWorkerFallbackReason,
+          runtimeModelSource,
+          runtimeModelCacheState,
+          runtimeNotes,
         ) = data;
 
         if (!isReady) {
@@ -63,7 +122,14 @@ class RuntimeStatusPanel extends StatelessWidget {
                 _chip(
                   context,
                   icon: Icons.speed_rounded,
-                  text: '${tokensPerSecond.toStringAsFixed(1)} tok/s',
+                  text: 'avg ${tokensPerSecond.toStringAsFixed(1)} tok/s',
+                ),
+              if (decodeTokensPerSecond != null)
+                _chip(
+                  context,
+                  icon: Icons.rocket_launch_rounded,
+                  text:
+                      'decode ${decodeTokensPerSecond.toStringAsFixed(1)} tok/s',
                 ),
               if (firstTokenLatencyMs != null)
                 _chip(
@@ -77,6 +143,34 @@ class RuntimeStatusPanel extends StatelessWidget {
                   icon: Icons.timer_outlined,
                   text: 'total ${generationLatencyMs}ms',
                 ),
+              if (nativePromptEvalMs != null)
+                _chip(
+                  context,
+                  icon: Icons.input_rounded,
+                  text: nativePromptEvalTokens != null
+                      ? 'p_eval ${nativePromptEvalMs}ms/$nativePromptEvalTokens tok'
+                      : 'p_eval ${nativePromptEvalMs}ms',
+                ),
+              if (nativeEvalMs != null)
+                _chip(
+                  context,
+                  icon: Icons.auto_awesome_rounded,
+                  text: nativeEvalTokens != null
+                      ? 'eval ${nativeEvalMs}ms/$nativeEvalTokens tok'
+                      : 'eval ${nativeEvalMs}ms',
+                ),
+              if (nativeSampleMs != null)
+                _chip(
+                  context,
+                  icon: Icons.tune_rounded,
+                  text: 'sample ${nativeSampleMs}ms',
+                ),
+              if (nativeReusedGraphs != null)
+                _chip(
+                  context,
+                  icon: Icons.repeat_rounded,
+                  text: 'reuse $nativeReusedGraphs',
+                ),
               if (runtimeGpuLayers != null)
                 _chip(
                   context,
@@ -89,11 +183,78 @@ class RuntimeStatusPanel extends StatelessWidget {
                   icon: Icons.alt_route_rounded,
                   text: 'threads $runtimeThreads',
                 ),
+              if (runtimeThreadPoolSize != null)
+                _chip(
+                  context,
+                  icon: Icons.hub_outlined,
+                  text: 'pool $runtimeThreadPoolSize',
+                ),
+              if (isMmprojLoaded)
+                _chip(
+                  context,
+                  icon: Icons.visibility_rounded,
+                  text: 'mmproj loaded',
+                )
+              else if (hasConfiguredMmproj)
+                _chip(
+                  context,
+                  icon: Icons.visibility_outlined,
+                  text: 'mmproj cfg',
+                ),
+              if (runtimeExecution != null)
+                _chip(
+                  context,
+                  icon: Icons.settings_ethernet_rounded,
+                  text: 'exec ${_shortText(runtimeExecution)}',
+                ),
+              if (runtimeCoreVariant != null)
+                _chip(
+                  context,
+                  icon: Icons.developer_board_rounded,
+                  text: 'core ${_shortText(runtimeCoreVariant)}',
+                ),
+              if (runtimeModelSource != null)
+                _chip(
+                  context,
+                  icon: Icons.cloud_queue_rounded,
+                  text: 'src ${_shortText(runtimeModelSource)}',
+                ),
+              if (runtimeModelCacheState != null)
+                _chip(
+                  context,
+                  icon: Icons.inventory_2_outlined,
+                  text: 'cache ${_shortText(runtimeModelCacheState)}',
+                ),
+              if (runtimeWorkerFallbackReason != null)
+                _chip(
+                  context,
+                  icon: Icons.warning_amber_rounded,
+                  text: 'worker ${_shortText(runtimeWorkerFallbackReason)}',
+                ),
+              if (runtimeNotes != null)
+                _chip(
+                  context,
+                  icon: Icons.info_outline_rounded,
+                  text: 'notes ${_shortText(runtimeNotes)}',
+                ),
             ],
           ),
         );
       },
     );
+  }
+
+  String _shortText(String text, {int maxLength = 42}) {
+    final normalized = text
+        .replaceAll(';', ', ')
+        .replaceAll('_', ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (normalized.length <= maxLength) {
+      return normalized;
+    }
+
+    return '${normalized.substring(0, maxLength - 3)}...';
   }
 
   Widget _chip(
