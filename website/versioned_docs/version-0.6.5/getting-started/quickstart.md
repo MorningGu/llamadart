@@ -1,5 +1,6 @@
 ---
 title: Quickstart
+description: Load a GGUF model, generate tokens, and try embeddings with the core llamadart APIs in minutes.
 ---
 
 This quickstart uses the core `LlamaEngine` API.

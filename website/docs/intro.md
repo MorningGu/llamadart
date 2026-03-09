@@ -1,6 +1,7 @@
 ---
 title: Introduction
 slug: /intro
+description: Learn what llamadart provides and where to start when building local AI features in Dart and Flutter.
 ---
 
 `llamadart` is a Dart and Flutter plugin for running `llama.cpp` models with

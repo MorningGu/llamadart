@@ -1,5 +1,7 @@
 ---
 title: Maintainer Overview
+description: Repo-specific maintenance checklist for the llamadart docs site, releases, and verification flow.
+unlisted: true
 ---
 
 This section is for `llamadart` maintainers, not general Docusaurus usage.
@@ -45,3 +47,14 @@ dart test
 
 Use targeted test commands when iterating quickly, then run full checks before
 release-related merges.
+
+## Analytics and SEO maintenance
+
+- Global GA4 tracking is configured in `website/docusaurus.config.ts` and reads
+  `DOCS_GA_MEASUREMENT_ID` from the docs deployment workflow.
+- Update the GitHub Actions repository variable
+  `DOCS_GA_MEASUREMENT_ID` when rotating the docs site's GA4 stream.
+- Keep `website/static/robots.txt`, sitemap generation, and the social card in
+  sync with the production domain `https://llamadart.leehack.com`.
+- Latest stable user-facing docs stay indexable, `/docs/next` plus archived
+  versions are `noIndex`, and maintainer pages remain reachable but unlisted.

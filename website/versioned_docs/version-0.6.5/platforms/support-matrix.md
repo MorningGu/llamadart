@@ -1,5 +1,6 @@
 ---
 title: Platform & Backend Matrix
+description: Check which native and web backends are supported by llamadart and how backend module selection works per platform.
 ---
 
 This page combines platform support and backend-module configuration for

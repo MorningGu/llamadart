@@ -1,5 +1,7 @@
 ---
 title: Native and Web Sync Flows
+description: Follow the correct cross-repo workflow when syncing native bindings or published web bridge assets.
+unlisted: true
 ---
 
 ## Native sync flow
