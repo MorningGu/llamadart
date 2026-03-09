@@ -1,4 +1,4 @@
-## Unreleased
+## 0.6.6
 
 * **Runtime syncs**:
   * Updated native hook pinning to `leehack/llamadart-native@b8216`.
@@ -10,6 +10,7 @@
   * Updated Android chat app defaults to prefer CPU for Qwen3.5 `0.8B` and `2B`, and reduced Android `0.8B` context to `2048` for lower first-token latency.
   * Hardened Android multimodal handling by downscaling staged images in the chat app and forcing Qwen3.5 `0.8B` projector work onto CPU on Android.
   * Fixed WebGPU Qwen prompt/control-token handling and committed companion bridge-side streaming/multimodal fixes required by the local chat app runtime.
+* **Compatibility note**: no public API breaking changes in `0.6.6`.
 
 ## 0.6.5
 
