@@ -7,7 +7,7 @@ For canonical full release notes, use:
 
 - [`CHANGELOG.md`](https://github.com/leehack/llamadart/blob/main/CHANGELOG.md)
 
-## Unreleased
+## 0.6.6
 
 - Synced native hook pin to `leehack/llamadart-native@b8216`.
 - Updated default web bridge asset pinning to
@@ -20,6 +20,7 @@ For canonical full release notes, use:
   `0.8B` / `2B`.
 - Fixed local web chat app bridge/runtime handling for Qwen prompt streaming and
   multimodal fallback behavior.
+- Compatibility note: no public API breaking changes in `0.6.6`.
 
 ## 0.6.5
 
