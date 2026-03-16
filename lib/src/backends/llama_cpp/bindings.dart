@@ -62,6 +62,21 @@ external void llama_attach_threadpool(
 external void llama_detach_threadpool(ffi.Pointer<llama_context> ctx);
 
 @ffi.Native<
+  ffi.Pointer<llama_model> Function(
+    ffi.Pointer<gguf_context>,
+    llama_model_set_tensor_data_t,
+    ffi.Pointer<ffi.Void>,
+    llama_model_params,
+  )
+>()
+external ffi.Pointer<llama_model> llama_model_init_from_user(
+  ffi.Pointer<gguf_context> metadata,
+  llama_model_set_tensor_data_t set_tensor_data,
+  ffi.Pointer<ffi.Void> set_tensor_data_ud,
+  llama_model_params params,
+);
+
+@ffi.Native<
   ffi.Pointer<llama_model> Function(ffi.Pointer<ffi.Char>, llama_model_params)
 >()
 external ffi.Pointer<llama_model> llama_load_model_from_file(
@@ -1429,7 +1444,7 @@ external ffi.Pointer<llama_sampler> llama_sampler_init_mirostat_v2(
   double eta,
 );
 
-/// @details Intializes a GBNF grammar, see grammars/README.md for details.
+/// @details Initializes a GBNF grammar, see grammars/README.md for details.
 /// @param vocab The vocabulary that this grammar will be used with.
 /// @param grammar_str The production rules for the grammar, encoded as a string. Returns an empty grammar if empty. Returns NULL if parsing of grammar_str fails.
 /// @param grammar_root The name of the start symbol for the grammar.
@@ -1868,11 +1883,6 @@ int ggml_type_size(ggml_type type) => _ggml_type_size(type.value);
 external int _ggml_row_size(int type, int ne);
 
 int ggml_row_size(ggml_type type, int ne) => _ggml_row_size(type.value, ne);
-
-@ffi.Native<ffi.Double Function(ffi.UnsignedInt)>(symbol: 'ggml_type_sizef')
-external double _ggml_type_sizef(int type);
-
-double ggml_type_sizef(ggml_type type) => _ggml_type_sizef(type.value);
 
 @ffi.Native<ffi.Pointer<ffi.Char> Function(ffi.UnsignedInt)>(
   symbol: 'ggml_type_name',
@@ -5840,6 +5850,27 @@ external ffi.Pointer<ggml_tensor> ggml_solve_tri(
   ffi.Pointer<ggml_tensor> Function(
     ffi.Pointer<ggml_context>,
     ffi.Pointer<ggml_tensor>,
+    ffi.Pointer<ggml_tensor>,
+    ffi.Pointer<ggml_tensor>,
+    ffi.Pointer<ggml_tensor>,
+    ffi.Pointer<ggml_tensor>,
+    ffi.Pointer<ggml_tensor>,
+  )
+>()
+external ffi.Pointer<ggml_tensor> ggml_gated_delta_net(
+  ffi.Pointer<ggml_context> ctx,
+  ffi.Pointer<ggml_tensor> q,
+  ffi.Pointer<ggml_tensor> k,
+  ffi.Pointer<ggml_tensor> v,
+  ffi.Pointer<ggml_tensor> g,
+  ffi.Pointer<ggml_tensor> beta,
+  ffi.Pointer<ggml_tensor> state,
+);
+
+@ffi.Native<
+  ffi.Pointer<ggml_tensor> Function(
+    ffi.Pointer<ggml_context>,
+    ffi.Pointer<ggml_tensor>,
     ggml_custom1_op_t,
     ffi.Int,
     ffi.Pointer<ffi.Void>,
@@ -7133,7 +7164,7 @@ external bool mtmd_support_vision(ffi.Pointer<mtmd_context> ctx);
 external bool mtmd_support_audio(ffi.Pointer<mtmd_context> ctx);
 
 @ffi.Native<ffi.Int Function(ffi.Pointer<mtmd_context>)>()
-external int mtmd_get_audio_bitrate(ffi.Pointer<mtmd_context> ctx);
+external int mtmd_get_audio_sample_rate(ffi.Pointer<mtmd_context> ctx);
 
 @ffi.Native<
   ffi.Pointer<mtmd_bitmap> Function(
@@ -7512,7 +7543,8 @@ enum ggml_type {
   GGML_TYPE_TQ1_0(34),
   GGML_TYPE_TQ2_0(35),
   GGML_TYPE_MXFP4(39),
-  GGML_TYPE_COUNT(40);
+  GGML_TYPE_NVFP4(40),
+  GGML_TYPE_COUNT(41);
 
   final int value;
   const ggml_type(this.value);
@@ -7550,7 +7582,8 @@ enum ggml_type {
     34 => GGML_TYPE_TQ1_0,
     35 => GGML_TYPE_TQ2_0,
     39 => GGML_TYPE_MXFP4,
-    40 => GGML_TYPE_COUNT,
+    40 => GGML_TYPE_NVFP4,
+    41 => GGML_TYPE_COUNT,
     _ => throw ArgumentError('Unknown value for ggml_type: $value'),
   };
 }
@@ -7643,17 +7676,18 @@ enum ggml_op {
   GGML_OP_GATED_LINEAR_ATTN(82),
   GGML_OP_RWKV_WKV7(83),
   GGML_OP_SOLVE_TRI(84),
-  GGML_OP_UNARY(85),
-  GGML_OP_MAP_CUSTOM1(86),
-  GGML_OP_MAP_CUSTOM2(87),
-  GGML_OP_MAP_CUSTOM3(88),
-  GGML_OP_CUSTOM(89),
-  GGML_OP_CROSS_ENTROPY_LOSS(90),
-  GGML_OP_CROSS_ENTROPY_LOSS_BACK(91),
-  GGML_OP_OPT_STEP_ADAMW(92),
-  GGML_OP_OPT_STEP_SGD(93),
-  GGML_OP_GLU(94),
-  GGML_OP_COUNT(95);
+  GGML_OP_GATED_DELTA_NET(85),
+  GGML_OP_UNARY(86),
+  GGML_OP_MAP_CUSTOM1(87),
+  GGML_OP_MAP_CUSTOM2(88),
+  GGML_OP_MAP_CUSTOM3(89),
+  GGML_OP_CUSTOM(90),
+  GGML_OP_CROSS_ENTROPY_LOSS(91),
+  GGML_OP_CROSS_ENTROPY_LOSS_BACK(92),
+  GGML_OP_OPT_STEP_ADAMW(93),
+  GGML_OP_OPT_STEP_SGD(94),
+  GGML_OP_GLU(95),
+  GGML_OP_COUNT(96);
 
   final int value;
   const ggml_op(this.value);
@@ -7744,17 +7778,18 @@ enum ggml_op {
     82 => GGML_OP_GATED_LINEAR_ATTN,
     83 => GGML_OP_RWKV_WKV7,
     84 => GGML_OP_SOLVE_TRI,
-    85 => GGML_OP_UNARY,
-    86 => GGML_OP_MAP_CUSTOM1,
-    87 => GGML_OP_MAP_CUSTOM2,
-    88 => GGML_OP_MAP_CUSTOM3,
-    89 => GGML_OP_CUSTOM,
-    90 => GGML_OP_CROSS_ENTROPY_LOSS,
-    91 => GGML_OP_CROSS_ENTROPY_LOSS_BACK,
-    92 => GGML_OP_OPT_STEP_ADAMW,
-    93 => GGML_OP_OPT_STEP_SGD,
-    94 => GGML_OP_GLU,
-    95 => GGML_OP_COUNT,
+    85 => GGML_OP_GATED_DELTA_NET,
+    86 => GGML_OP_UNARY,
+    87 => GGML_OP_MAP_CUSTOM1,
+    88 => GGML_OP_MAP_CUSTOM2,
+    89 => GGML_OP_MAP_CUSTOM3,
+    90 => GGML_OP_CUSTOM,
+    91 => GGML_OP_CROSS_ENTROPY_LOSS,
+    92 => GGML_OP_CROSS_ENTROPY_LOSS_BACK,
+    93 => GGML_OP_OPT_STEP_ADAMW,
+    94 => GGML_OP_OPT_STEP_SGD,
+    95 => GGML_OP_GLU,
+    96 => GGML_OP_COUNT,
     _ => throw ArgumentError('Unknown value for ggml_op: $value'),
   };
 }
@@ -8047,6 +8082,7 @@ enum llama_ftype {
   LLAMA_FTYPE_MOSTLY_TQ1_0(36),
   LLAMA_FTYPE_MOSTLY_TQ2_0(37),
   LLAMA_FTYPE_MOSTLY_MXFP4_MOE(38),
+  LLAMA_FTYPE_MOSTLY_NVFP4(39),
   LLAMA_FTYPE_GUESSED(1024);
 
   final int value;
@@ -8086,6 +8122,7 @@ enum llama_ftype {
     36 => LLAMA_FTYPE_MOSTLY_TQ1_0,
     37 => LLAMA_FTYPE_MOSTLY_TQ2_0,
     38 => LLAMA_FTYPE_MOSTLY_MXFP4_MOE,
+    39 => LLAMA_FTYPE_MOSTLY_NVFP4,
     1024 => LLAMA_FTYPE_GUESSED,
     _ => throw ArgumentError('Unknown value for llama_ftype: $value'),
   };
@@ -8589,6 +8626,20 @@ enum ggml_numa_strategy {
 final class ggml_threadpool extends ffi.Opaque {}
 
 typedef ggml_threadpool_t = ffi.Pointer<ggml_threadpool>;
+typedef llama_model_set_tensor_data_tFunction =
+    ffi.Void Function(
+      ffi.Pointer<ggml_tensor> tensor,
+      ffi.Pointer<ffi.Void> userdata,
+    );
+typedef Dartllama_model_set_tensor_data_tFunction =
+    void Function(
+      ffi.Pointer<ggml_tensor> tensor,
+      ffi.Pointer<ffi.Void> userdata,
+    );
+typedef llama_model_set_tensor_data_t =
+    ffi.Pointer<ffi.NativeFunction<llama_model_set_tensor_data_tFunction>>;
+
+final class gguf_context extends ffi.Opaque {}
 
 enum llama_params_fit_status {
   LLAMA_PARAMS_FIT_STATUS_SUCCESS(0),
@@ -8871,7 +8922,8 @@ enum ggml_ftype {
   GGML_FTYPE_MOSTLY_IQ4_XS(22),
   GGML_FTYPE_MOSTLY_IQ1_M(23),
   GGML_FTYPE_MOSTLY_BF16(24),
-  GGML_FTYPE_MOSTLY_MXFP4(25);
+  GGML_FTYPE_MOSTLY_MXFP4(25),
+  GGML_FTYPE_MOSTLY_NVFP4(26);
 
   final int value;
   const ggml_ftype(this.value);
@@ -8902,6 +8954,7 @@ enum ggml_ftype {
     23 => GGML_FTYPE_MOSTLY_IQ1_M,
     24 => GGML_FTYPE_MOSTLY_BF16,
     25 => GGML_FTYPE_MOSTLY_MXFP4,
+    26 => GGML_FTYPE_MOSTLY_NVFP4,
     _ => throw ArgumentError('Unknown value for ggml_ftype: $value'),
   };
 }
@@ -9052,89 +9105,7 @@ final class ggml_init_params extends ffi.Struct {
 
 typedef ggml_guid_t = ffi.Pointer<ffi.Pointer<ffi.Uint8>>;
 
-final class _IO_marker extends ffi.Opaque {}
-
-typedef __off_t = ffi.Long;
-typedef Dart__off_t = int;
-typedef _IO_lock_t = ffi.Void;
-typedef Dart_IO_lock_t = void;
-typedef __off64_t = ffi.Long;
-typedef Dart__off64_t = int;
-
-final class _IO_codecvt extends ffi.Opaque {}
-
-final class _IO_wide_data extends ffi.Opaque {}
-
-final class _IO_FILE extends ffi.Struct {
-  @ffi.Int()
-  external int _flags;
-
-  external ffi.Pointer<ffi.Char> _IO_read_ptr;
-
-  external ffi.Pointer<ffi.Char> _IO_read_end;
-
-  external ffi.Pointer<ffi.Char> _IO_read_base;
-
-  external ffi.Pointer<ffi.Char> _IO_write_base;
-
-  external ffi.Pointer<ffi.Char> _IO_write_ptr;
-
-  external ffi.Pointer<ffi.Char> _IO_write_end;
-
-  external ffi.Pointer<ffi.Char> _IO_buf_base;
-
-  external ffi.Pointer<ffi.Char> _IO_buf_end;
-
-  external ffi.Pointer<ffi.Char> _IO_save_base;
-
-  external ffi.Pointer<ffi.Char> _IO_backup_base;
-
-  external ffi.Pointer<ffi.Char> _IO_save_end;
-
-  external ffi.Pointer<_IO_marker> _markers;
-
-  external ffi.Pointer<_IO_FILE> _chain;
-
-  @ffi.Int()
-  external int _fileno;
-
-  @ffi.Int()
-  external int _flags2;
-
-  @__off_t()
-  external int _old_offset;
-
-  @ffi.UnsignedShort()
-  external int _cur_column;
-
-  @ffi.SignedChar()
-  external int _vtable_offset;
-
-  @ffi.Array.multi([1])
-  external ffi.Array<ffi.Char> _shortbuf;
-
-  external ffi.Pointer<_IO_lock_t> _lock;
-
-  @__off64_t()
-  external int _offset;
-
-  external ffi.Pointer<_IO_codecvt> _codecvt;
-
-  external ffi.Pointer<_IO_wide_data> _wide_data;
-
-  external ffi.Pointer<_IO_FILE> _freeres_list;
-
-  external ffi.Pointer<ffi.Void> _freeres_buf;
-
-  @ffi.Size()
-  external int __pad5;
-
-  @ffi.Int()
-  external int _mode;
-
-  @ffi.Array.multi([20])
-  external ffi.Array<ffi.Char> _unused2;
-}
+final class _IO_FILE extends ffi.Opaque {}
 
 typedef FILE = _IO_FILE;
 

@@ -130,7 +130,7 @@ Note: embedding support depends on backend/runtime capabilities.
 <details>
 <summary>Full module matrix (available modules by target)</summary>
 
-Backend module matrix from pinned native tag `b8216`:
+Backend module matrix from pinned native tag `b8373`:
 
 | Target | Available backend modules in bundle |
 |--------|-------------------------------------|

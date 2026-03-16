@@ -111,6 +111,10 @@ typedef _MtmdHelperEvalChunksDart =
 typedef _MtmdLogSetNative = Void Function(ggml_log_callback, Pointer<Void>);
 typedef _MtmdLogSetDart = void Function(ggml_log_callback, Pointer<Void>);
 
+final RegExp _linuxLlamadartProcMapsPattern = RegExp(
+  r'/libllamadart\.so(?:\.\d+)?$',
+);
+
 /// Service responsible for managing Llama.cpp models and contexts.
 ///
 /// This service handles the direct interaction with the native Llama.cpp library,
@@ -417,6 +421,7 @@ class LlamaCppService {
     }
     _applyConfiguredLogLevel();
     llama_backend_init();
+    _refreshBackendModuleDirectoryAfterPrimaryLoad();
     _applyConfiguredLogLevel();
 
     // Startup path should remain CPU-safe so reading backend options does not
@@ -548,26 +553,28 @@ class LlamaCppService {
   }
 
   String? _resolveLinuxPrimaryLibraryDirectory() {
-    final candidates = <String>{
-      path.join(Directory.current.path, '.dart_tool', 'lib'),
-      path.dirname(Platform.resolvedExecutable),
-      Directory.current.path,
-    };
+    return resolveLinuxPrimaryLibraryDirectory(
+      resolvedExecutablePath: Platform.resolvedExecutable,
+      currentDirectoryPath: Directory.current.path,
+      environment: Platform.environment,
+    );
+  }
 
-    for (final candidate in candidates) {
-      final directory = Directory(candidate);
-      if (!directory.existsSync()) {
-        continue;
-      }
-      final hasPrimary =
-          File(path.join(candidate, 'libllamadart.so')).existsSync() ||
-          File(path.join(candidate, 'libllamadart.so.0')).existsSync();
-      if (hasPrimary) {
-        return candidate;
-      }
+  void _refreshBackendModuleDirectoryAfterPrimaryLoad() {
+    if (_backendModuleDirectory != null) {
+      return;
     }
 
-    return null;
+    if (!Platform.isAndroid && !Platform.isLinux) {
+      return;
+    }
+
+    _backendModuleDirectory = resolveBackendModuleDirectory();
+    if (_backendModuleDirectory == null && Platform.isLinux) {
+      _backendModuleDirectory =
+          _linuxPreparedLibraryDirectory ??
+          _resolveLinuxPrimaryLibraryDirectory();
+    }
   }
 
   List<String> _linuxDependencySourceDirectories(String targetDirectory) {
@@ -844,6 +851,57 @@ class LlamaCppService {
     return executableDir;
   }
 
+  /// Resolves the primary Linux native-library directory.
+  ///
+  /// Resolution order:
+  /// 1. Explicit environment override (`LLAMADART_NATIVE_LIB_DIR` or
+  ///    `LLAMADART_BACKEND_MODULE_DIR`)
+  /// 2. `.dart_tool/lib`
+  /// 3. Executable-adjacent `lib/` directory
+  /// 4. Directory of resolved executable
+  /// 5. Current working directory `lib/`
+  /// 6. Current working directory
+  static String? resolveLinuxPrimaryLibraryDirectory({
+    required String resolvedExecutablePath,
+    required String currentDirectoryPath,
+    required Map<String, String> environment,
+  }) {
+    final overrideCandidates = <String>[
+      environment['LLAMADART_NATIVE_LIB_DIR'] ?? '',
+      environment['LLAMADART_BACKEND_MODULE_DIR'] ?? '',
+    ];
+    for (final override in overrideCandidates) {
+      if (override.isEmpty) {
+        continue;
+      }
+      if (_containsLinuxPrimaryLibrary(override)) {
+        return override;
+      }
+    }
+
+    final executableDir = path.dirname(resolvedExecutablePath);
+    final candidates = <String>[
+      path.join(currentDirectoryPath, '.dart_tool', 'lib'),
+      path.join(executableDir, 'lib'),
+      executableDir,
+      path.join(currentDirectoryPath, 'lib'),
+      currentDirectoryPath,
+    ];
+
+    final seen = <String>{};
+    for (final candidate in candidates) {
+      final normalized = path.normalize(candidate);
+      if (!seen.add(normalized)) {
+        continue;
+      }
+      if (_containsLinuxPrimaryLibrary(normalized)) {
+        return normalized;
+      }
+    }
+
+    return null;
+  }
+
   static String? _preferredWindowsBundleName() {
     switch (Abi.current()) {
       case Abi.windowsX64:
@@ -975,6 +1033,20 @@ class LlamaCppService {
     }
   }
 
+  static bool _containsLinuxPrimaryLibrary(String directoryPath) {
+    try {
+      final directory = Directory(directoryPath);
+      if (!directory.existsSync()) {
+        return false;
+      }
+
+      return File(path.join(directoryPath, 'libllamadart.so')).existsSync() ||
+          File(path.join(directoryPath, 'libllamadart.so.0')).existsSync();
+    } catch (_) {
+      return false;
+    }
+  }
+
   static String? _findDartToolLibDirectory(String currentDirectoryPath) {
     var cursor = Directory(currentDirectoryPath).absolute;
     while (true) {
@@ -1013,7 +1085,7 @@ class LlamaCppService {
           ? mappedPath.substring(0, mappedPath.length - ' (deleted)'.length)
           : mappedPath;
 
-      if (!normalizedPath.endsWith('/libllamadart.so')) {
+      if (!_linuxLlamadartProcMapsPattern.hasMatch(normalizedPath)) {
         continue;
       }
 

@@ -435,6 +435,17 @@ void main() {
       );
     });
 
+    test('accepts versioned Linux libllamadart mappings', () {
+      const maps = '''
+7f8a0000-7f8b0000 r-xp 00000000 103:04 12345 /opt/app/lib/libllamadart.so.0
+''';
+
+      expect(
+        LlamaCppService.parseBackendModuleDirectoryFromProcMaps(maps),
+        '/opt/app/lib',
+      );
+    });
+
     test('returns null when libllamadart mapping is missing', () {
       const maps = '''
 7f8a0000-7f8b0000 r-xp 00000000 103:04 12345 /system/lib64/libc.so
@@ -602,6 +613,70 @@ void main() {
     );
   });
 
+  group('resolveLinuxPrimaryLibraryDirectory', () {
+    late Directory tempRoot;
+
+    setUp(() {
+      tempRoot = Directory.systemTemp.createTempSync(
+        'llamadart-linux-primary-',
+      );
+    });
+
+    tearDown(() {
+      if (tempRoot.existsSync()) {
+        tempRoot.deleteSync(recursive: true);
+      }
+    });
+
+    test('uses explicit environment override when valid', () {
+      final overrideDir = Directory(path.join(tempRoot.path, 'override'))
+        ..createSync(recursive: true);
+      _createLinuxBundleMarkerFiles(overrideDir.path);
+
+      final resolved = LlamaCppService.resolveLinuxPrimaryLibraryDirectory(
+        resolvedExecutablePath: path.join(tempRoot.path, 'dart'),
+        currentDirectoryPath: tempRoot.path,
+        environment: {'LLAMADART_NATIVE_LIB_DIR': overrideDir.path},
+      );
+
+      expect(path.normalize(resolved!), path.normalize(overrideDir.path));
+    });
+
+    test('prefers executable-adjacent lib directory for packaged bundles', () {
+      final bundleDir = Directory(path.join(tempRoot.path, 'bundle'))
+        ..createSync(recursive: true);
+      final executableDir = Directory(path.join(bundleDir.path, 'app'))
+        ..createSync(recursive: true);
+      final libDir = Directory(path.join(executableDir.path, 'lib'))
+        ..createSync(recursive: true);
+      _createLinuxBundleMarkerFiles(libDir.path);
+
+      final resolved = LlamaCppService.resolveLinuxPrimaryLibraryDirectory(
+        resolvedExecutablePath: path.join(executableDir.path, 'my_app'),
+        currentDirectoryPath: bundleDir.path,
+        environment: const {},
+      );
+
+      expect(path.normalize(resolved!), path.normalize(libDir.path));
+    });
+
+    test('falls back to current working directory lib folder', () {
+      final currentDir = Directory(path.join(tempRoot.path, 'cwd'))
+        ..createSync(recursive: true);
+      final libDir = Directory(path.join(currentDir.path, 'lib'))
+        ..createSync(recursive: true);
+      _createLinuxBundleMarkerFiles(libDir.path, versionedPrimary: true);
+
+      final resolved = LlamaCppService.resolveLinuxPrimaryLibraryDirectory(
+        resolvedExecutablePath: path.join(tempRoot.path, 'dart'),
+        currentDirectoryPath: currentDir.path,
+        environment: const {},
+      );
+
+      expect(path.normalize(resolved!), path.normalize(libDir.path));
+    });
+  });
+
   group('Linux runtime dependency helpers', () {
     late Directory tempRoot;
 
@@ -728,6 +803,20 @@ void _createWindowsBundleMarkerFiles(
     'llama$suffix.dll',
     'ggml$suffix.dll',
     'ggml-cpu$suffix.dll',
+  ];
+  for (final fileName in markerFiles) {
+    File(path.join(directoryPath, fileName)).writeAsStringSync('');
+  }
+}
+
+void _createLinuxBundleMarkerFiles(
+  String directoryPath, {
+  bool versionedPrimary = false,
+}) {
+  final markerFiles = <String>[
+    versionedPrimary ? 'libllamadart.so.0' : 'libllamadart.so',
+    'libllama.so',
+    'libggml.so',
   ];
   for (final fileName in markerFiles) {
     File(path.join(directoryPath, fileName)).writeAsStringSync('');
