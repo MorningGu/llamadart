@@ -6,7 +6,7 @@ description: Check which native and web backends are supported by llamadart and 
 This page combines platform support and backend-module configuration for
 `llamadart`.
 
-The native-assets hook currently pins `llamadart-native` tag `b8373`
+The native-assets hook currently pins `llamadart-native` tag `b8480`
 (`hook/build.dart`). Module availability below is for that pinned tag.
 
 ## Platform/architecture coverage
@@ -26,7 +26,7 @@ The native-assets hook currently pins `llamadart-native` tag `b8373`
 | macOS x86_64 | `macos-x86_64` | No (fixed in hook) | Consolidated runtime: `cpu`, `metal` | Supported |
 | Web (browser) | N/A (JS bridge path) | N/A | Bridge router: `webgpu`, `cpu` fallback | Experimental |
 
-## Current module availability by bundle (`b8373`)
+## Current module availability by bundle (`b8480`)
 
 | Bundle key | Available backend modules in bundle |
 | --- | --- |

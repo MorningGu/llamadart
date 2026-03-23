@@ -12,7 +12,7 @@ description: Install llamadart, add the package to your app, and understand the 
 
 ```yaml
 dependencies:
-  llamadart: ^0.6.7
+  llamadart: ^0.6.8
 ```
 
 Then resolve packages:

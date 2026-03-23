@@ -7,6 +7,14 @@ For canonical full release notes, use:
 
 - [`CHANGELOG.md`](https://github.com/leehack/llamadart/blob/main/CHANGELOG.md)
 
+## 0.6.8
+
+- Synced native hook pinning and regenerated bindings to
+  `leehack/llamadart-native@b8480`.
+- Refreshed generated low-level FFI bindings to match the synced upstream
+  headers.
+- Compatibility note: no public API breaking changes in `0.6.8`.
+
 ## 0.6.7
 
 - Synced native hook pinning and regenerated bindings to
