@@ -1884,6 +1884,11 @@ external int _ggml_row_size(int type, int ne);
 
 int ggml_row_size(ggml_type type, int ne) => _ggml_row_size(type.value, ne);
 
+@ffi.Native<ffi.Double Function(ffi.UnsignedInt)>(symbol: 'ggml_type_sizef')
+external double _ggml_type_sizef(int type);
+
+double ggml_type_sizef(ggml_type type) => _ggml_type_sizef(type.value);
+
 @ffi.Native<ffi.Pointer<ffi.Char> Function(ffi.UnsignedInt)>(
   symbol: 'ggml_type_name',
 )
@@ -9105,7 +9110,89 @@ final class ggml_init_params extends ffi.Struct {
 
 typedef ggml_guid_t = ffi.Pointer<ffi.Pointer<ffi.Uint8>>;
 
-final class _IO_FILE extends ffi.Opaque {}
+final class _IO_marker extends ffi.Opaque {}
+
+typedef __off_t = ffi.Long;
+typedef Dart__off_t = int;
+typedef _IO_lock_t = ffi.Void;
+typedef Dart_IO_lock_t = void;
+typedef __off64_t = ffi.Long;
+typedef Dart__off64_t = int;
+
+final class _IO_codecvt extends ffi.Opaque {}
+
+final class _IO_wide_data extends ffi.Opaque {}
+
+final class _IO_FILE extends ffi.Struct {
+  @ffi.Int()
+  external int _flags;
+
+  external ffi.Pointer<ffi.Char> _IO_read_ptr;
+
+  external ffi.Pointer<ffi.Char> _IO_read_end;
+
+  external ffi.Pointer<ffi.Char> _IO_read_base;
+
+  external ffi.Pointer<ffi.Char> _IO_write_base;
+
+  external ffi.Pointer<ffi.Char> _IO_write_ptr;
+
+  external ffi.Pointer<ffi.Char> _IO_write_end;
+
+  external ffi.Pointer<ffi.Char> _IO_buf_base;
+
+  external ffi.Pointer<ffi.Char> _IO_buf_end;
+
+  external ffi.Pointer<ffi.Char> _IO_save_base;
+
+  external ffi.Pointer<ffi.Char> _IO_backup_base;
+
+  external ffi.Pointer<ffi.Char> _IO_save_end;
+
+  external ffi.Pointer<_IO_marker> _markers;
+
+  external ffi.Pointer<_IO_FILE> _chain;
+
+  @ffi.Int()
+  external int _fileno;
+
+  @ffi.Int()
+  external int _flags2;
+
+  @__off_t()
+  external int _old_offset;
+
+  @ffi.UnsignedShort()
+  external int _cur_column;
+
+  @ffi.SignedChar()
+  external int _vtable_offset;
+
+  @ffi.Array.multi([1])
+  external ffi.Array<ffi.Char> _shortbuf;
+
+  external ffi.Pointer<_IO_lock_t> _lock;
+
+  @__off64_t()
+  external int _offset;
+
+  external ffi.Pointer<_IO_codecvt> _codecvt;
+
+  external ffi.Pointer<_IO_wide_data> _wide_data;
+
+  external ffi.Pointer<_IO_FILE> _freeres_list;
+
+  external ffi.Pointer<ffi.Void> _freeres_buf;
+
+  @ffi.Size()
+  external int __pad5;
+
+  @ffi.Int()
+  external int _mode;
+
+  @ffi.Array.multi([20])
+  external ffi.Array<ffi.Char> _unused2;
+}
 
 typedef FILE = _IO_FILE;
 
