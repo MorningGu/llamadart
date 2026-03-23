@@ -1,3 +1,10 @@
+## 0.6.8
+
+* **Native runtime sync**:
+  * Updated native hook pinning and regenerated bindings to `leehack/llamadart-native@b8480`.
+  * Refreshed generated low-level FFI bindings to match the synced upstream headers.
+* **Compatibility note**: no public API breaking changes in `0.6.8`.
+
 ## 0.6.7
 
 * **Native runtime sync and Linux loader hardening**:
