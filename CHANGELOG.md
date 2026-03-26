@@ -1,3 +1,10 @@
+## Unreleased
+
+* **Android backend safety**:
+  * Honored `ggml_backend_score` during asset-based backend fallback so unsupported Android CPU variant libraries are skipped before initialization.
+  * Changed Android `auto` backend resolution to prefer CPU by default while keeping Vulkan available for explicit opt-in.
+  * Clarified that changing `hooks.user_defines` requires `flutter clean && flutter pub get` before rebuilding.
+
 ## 0.6.8
 
 * **Native runtime sync**:
