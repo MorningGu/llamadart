@@ -22,6 +22,8 @@ typedef _GgmlBackendLoadAllNative = Void Function();
 typedef _GgmlBackendLoadAllDart = void Function();
 typedef _GgmlBackendLoadAllFromPathNative = Void Function(Pointer<Char>);
 typedef _GgmlBackendLoadAllFromPathDart = void Function(Pointer<Char>);
+typedef _GgmlBackendScoreNative = Int32 Function();
+typedef _GgmlBackendScoreDart = int Function();
 typedef _GgmlBackendRegisterNative = Void Function(ggml_backend_reg_t);
 typedef _GgmlBackendRegisterDart = void Function(ggml_backend_reg_t);
 typedef _LlamaDartSetLogLevelNative = Void Function(Int32);
@@ -788,6 +790,55 @@ class LlamaCppService {
     return List<String>.unmodifiable(_startupDiagnostics);
   }
 
+  /// Returns whether a backend score allows a dynamically loaded module.
+  ///
+  /// Native runtimes expose `ggml_backend_score` to reject unsupported backend
+  /// variants on the current system. A `null` score means the optional symbol
+  /// is unavailable, so the candidate remains eligible for compatibility.
+  static bool isBackendCandidateScoreSupported(int? score) {
+    return score == null || score > 0;
+  }
+
+  /// Returns the first candidate whose probed score indicates support.
+  ///
+  /// Candidates with a missing score symbol (`null`) remain eligible so older
+  /// backends that do not export `ggml_backend_score` still work.
+  static T? selectFirstSupportedBackendCandidate<T>(
+    Iterable<T> candidates, {
+    required int? Function(T candidate) scoreForCandidate,
+  }) {
+    for (final candidate in candidates) {
+      final score = scoreForCandidate(candidate);
+      if (isBackendCandidateScoreSupported(score)) {
+        return candidate;
+      }
+    }
+
+    return null;
+  }
+
+  /// Describes why a backend asset candidate was skipped.
+  static String describeSkippedBackendAssetCandidate(
+    String assetUri,
+    int score,
+  ) {
+    return 'Skipped backend asset `$assetUri` because '
+        '`ggml_backend_score` returned $score.';
+  }
+
+  /// Describes which backend asset candidate was loaded.
+  static String describeLoadedBackendAssetCandidate(
+    String assetUri,
+    int? score,
+  ) {
+    if (score == null) {
+      return 'Loaded backend asset `$assetUri` without '
+          '`ggml_backend_score`.';
+    }
+    return 'Loaded backend asset `$assetUri` with '
+        '`ggml_backend_score`=$score.';
+  }
+
   void _recordStartupDiagnostic(String message) {
     if (message.isEmpty) {
       return;
@@ -1465,25 +1516,56 @@ class LlamaCppService {
 
   bool _tryRegisterBackendModuleViaAsset(String backend) {
     final assetCandidates = _backendAssetUriCandidates(backend);
+    final recordAssetDiagnostics = backend == 'cpu' && Platform.isAndroid;
 
     for (final assetUri in assetCandidates) {
       try {
         final library = DynamicLibrary.open(assetUri);
+        final score = _lookupBackendAssetScore(library);
+        if (!isBackendCandidateScoreSupported(score)) {
+          if (recordAssetDiagnostics && score != null) {
+            _recordStartupDiagnostic(
+              describeSkippedBackendAssetCandidate(assetUri, score),
+            );
+          }
+          continue;
+        }
+
         final init = library
             .lookupFunction<_GgmlBackendInitNative, _GgmlBackendInitDart>(
               'ggml_backend_init',
             );
         final reg = init();
         if (reg == nullptr) {
+          if (recordAssetDiagnostics) {
+            _recordStartupDiagnostic(
+              'Backend asset `$assetUri` returned null from '
+              '`ggml_backend_init`.',
+            );
+          }
           continue;
         }
 
-        // Asset init path requires explicit backend registration.
+        // Asset init path mirrors ggml_backend_load() by honoring optional
+        // backend score gates before initialization, then explicitly
+        // registering the backend because asset loading bypasses the native
+        // dynamic-loader helper.
         if (!_registerBackendRegBestEffort(reg)) {
+          if (recordAssetDiagnostics) {
+            _recordStartupDiagnostic(
+              'Backend asset `$assetUri` failed explicit backend '
+              'registration.',
+            );
+          }
           continue;
         }
         _loadedBackendLibraries[backend] = library;
         _loadedBackendModules.add(backend);
+        if (recordAssetDiagnostics) {
+          _recordStartupDiagnostic(
+            describeLoadedBackendAssetCandidate(assetUri, score),
+          );
+        }
         return true;
       } catch (_) {
         continue;
@@ -1491,6 +1573,18 @@ class LlamaCppService {
     }
 
     return false;
+  }
+
+  int? _lookupBackendAssetScore(DynamicLibrary library) {
+    try {
+      final score = library
+          .lookupFunction<_GgmlBackendScoreNative, _GgmlBackendScoreDart>(
+            'ggml_backend_score',
+          );
+      return score();
+    } catch (_) {
+      return null;
+    }
   }
 
   bool _registerBackendRegBestEffort(ggml_backend_reg_t reg) {
