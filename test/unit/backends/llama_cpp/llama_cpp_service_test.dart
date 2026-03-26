@@ -129,6 +129,30 @@ void main() {
   });
 
   group('resolveGpuLayersForLoad', () {
+    test('prefers CPU for Android auto mode', () {
+      const params = ModelParams(
+        gpuLayers: ModelParams.maxGpuLayers,
+        preferredBackend: GpuBackend.auto,
+      );
+
+      expect(
+        LlamaCppService.resolvePreferredBackendForLoad(params, isAndroid: true),
+        GpuBackend.cpu,
+      );
+    });
+
+    test('keeps auto mode on non-Android hosts', () {
+      const params = ModelParams(
+        gpuLayers: ModelParams.maxGpuLayers,
+        preferredBackend: GpuBackend.auto,
+      );
+
+      expect(
+        LlamaCppService.resolvePreferredBackendForLoad(params),
+        GpuBackend.auto,
+      );
+    });
+
     test('forces CPU mode to zero gpu layers', () {
       const params = ModelParams(
         gpuLayers: ModelParams.maxGpuLayers,
@@ -136,6 +160,18 @@ void main() {
       );
 
       expect(LlamaCppService.resolveGpuLayersForLoad(params), 0);
+    });
+
+    test('forces Android auto mode to zero gpu layers', () {
+      const params = ModelParams(
+        gpuLayers: ModelParams.maxGpuLayers,
+        preferredBackend: GpuBackend.auto,
+      );
+
+      expect(
+        LlamaCppService.resolveGpuLayersForLoad(params, isAndroid: true),
+        0,
+      );
     });
 
     test('preserves configured gpu layers for non-CPU backends', () {
@@ -213,6 +249,105 @@ void main() {
 
       expect(resolved.batchSize, 1);
       expect(resolved.microBatchSize, 1);
+    });
+  });
+
+  group('backend asset candidate scoring', () {
+    test('accepts missing score symbol for compatibility', () {
+      expect(LlamaCppService.isBackendCandidateScoreSupported(null), isTrue);
+    });
+
+    test('rejects non-positive scores', () {
+      expect(LlamaCppService.isBackendCandidateScoreSupported(0), isFalse);
+      expect(LlamaCppService.isBackendCandidateScoreSupported(-1), isFalse);
+      expect(LlamaCppService.isBackendCandidateScoreSupported(1), isTrue);
+    });
+
+    test('skips unsupported Android CPU variants until score passes', () {
+      final selected = LlamaCppService.selectFirstSupportedBackendCandidate(
+        const <String>[
+          'package:llamadart/ggml-cpu-android_armv9_2_2',
+          'package:llamadart/ggml-cpu-android_armv8_6_1',
+          'package:llamadart/ggml-cpu-android_armv8_2_2',
+          'package:llamadart/ggml-cpu-android_armv8_0_1',
+        ],
+        scoreForCandidate: (candidate) {
+          switch (candidate) {
+            case 'package:llamadart/ggml-cpu-android_armv9_2_2':
+            case 'package:llamadart/ggml-cpu-android_armv8_6_1':
+              return 0;
+            case 'package:llamadart/ggml-cpu-android_armv8_2_2':
+              return 7;
+            case 'package:llamadart/ggml-cpu-android_armv8_0_1':
+              return 1;
+          }
+          return 0;
+        },
+      );
+
+      expect(selected, 'package:llamadart/ggml-cpu-android_armv8_2_2');
+    });
+
+    test('keeps older backends without score symbol eligible', () {
+      final selected = LlamaCppService.selectFirstSupportedBackendCandidate(
+        const <String>[
+          'package:llamadart/ggml-cpu-android_armv8_0_1',
+          'package:llamadart/ggml-cpu',
+        ],
+        scoreForCandidate: (candidate) {
+          if (candidate == 'package:llamadart/ggml-cpu-android_armv8_0_1') {
+            return null;
+          }
+          return 1;
+        },
+      );
+
+      expect(selected, 'package:llamadart/ggml-cpu-android_armv8_0_1');
+    });
+
+    test('returns null when every candidate is unsupported', () {
+      final selected =
+          LlamaCppService.selectFirstSupportedBackendCandidate(const <String>[
+            'package:llamadart/ggml-cpu-android_armv9_2_2',
+            'package:llamadart/ggml-cpu-android_armv8_6_1',
+          ], scoreForCandidate: (_) => 0);
+
+      expect(selected, isNull);
+    });
+
+    test('formats skipped backend asset diagnostics', () {
+      expect(
+        LlamaCppService.describeSkippedBackendAssetCandidate(
+          'package:llamadart/ggml-cpu-android_armv8_6_1',
+          0,
+        ),
+        'Skipped backend asset '
+        '`package:llamadart/ggml-cpu-android_armv8_6_1` because '
+        '`ggml_backend_score` returned 0.',
+      );
+    });
+
+    test('formats loaded backend asset diagnostics with a score', () {
+      expect(
+        LlamaCppService.describeLoadedBackendAssetCandidate(
+          'package:llamadart/ggml-cpu-android_armv8_2_2',
+          7,
+        ),
+        'Loaded backend asset '
+        '`package:llamadart/ggml-cpu-android_armv8_2_2` with '
+        '`ggml_backend_score`=7.',
+      );
+    });
+
+    test('formats loaded backend asset diagnostics without a score', () {
+      expect(
+        LlamaCppService.describeLoadedBackendAssetCandidate(
+          'package:llamadart/ggml-cpu',
+          null,
+        ),
+        'Loaded backend asset `package:llamadart/ggml-cpu` without '
+        '`ggml_backend_score`.',
+      );
     });
   });
 
