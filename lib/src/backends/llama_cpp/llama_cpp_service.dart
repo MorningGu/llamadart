@@ -195,11 +195,30 @@ class LlamaCppService {
 
   int _getHandle() => _nextHandle++;
 
+  /// Resolves the effective backend preference for model loading.
+  ///
+  /// Android keeps Vulkan bundled, but `auto` currently prefers CPU to avoid
+  /// initializing optional GPU backends by default on devices with unstable
+  /// Vulkan stacks.
+  static GpuBackend resolvePreferredBackendForLoad(
+    ModelParams modelParams, {
+    bool isAndroid = false,
+  }) {
+    if (isAndroid && modelParams.preferredBackend == GpuBackend.auto) {
+      return GpuBackend.cpu;
+    }
+    return modelParams.preferredBackend;
+  }
+
   /// Resolves the effective GPU layer count for model loading.
   ///
   /// CPU backend preference always forces zero offloaded layers.
-  static int resolveGpuLayersForLoad(ModelParams modelParams) {
-    return modelParams.preferredBackend == GpuBackend.cpu
+  static int resolveGpuLayersForLoad(
+    ModelParams modelParams, {
+    bool isAndroid = false,
+  }) {
+    return resolvePreferredBackendForLoad(modelParams, isAndroid: isAndroid) ==
+            GpuBackend.cpu
         ? 0
         : modelParams.gpuLayers;
   }
@@ -1167,24 +1186,28 @@ class LlamaCppService {
     }
 
     _applyConfiguredLogLevel();
-    _prepareBackendsForModelLoad(modelParams.preferredBackend);
+    final effectiveBackend = resolvePreferredBackendForLoad(
+      modelParams,
+      isAndroid: Platform.isAndroid,
+    );
+
+    _prepareBackendsForModelLoad(effectiveBackend);
 
     final modelPathPtr = modelPath.toNativeUtf8();
     final mparams = llama_model_default_params();
-    var preferredDevices = _createPreferredDeviceList(
-      modelParams.preferredBackend,
+    var preferredDevices = _createPreferredDeviceList(effectiveBackend);
+    var gpuLayers = resolveGpuLayersForLoad(
+      modelParams,
+      isAndroid: Platform.isAndroid,
     );
-    var gpuLayers = resolveGpuLayersForLoad(modelParams);
     var forcedCpuFallback = false;
 
     final explicitGpuBackend =
-        modelParams.preferredBackend != GpuBackend.auto &&
-        modelParams.preferredBackend != GpuBackend.cpu;
+        effectiveBackend != GpuBackend.auto &&
+        effectiveBackend != GpuBackend.cpu;
     if (explicitGpuBackend &&
         preferredDevices == null &&
-        _shouldForceCpuFallbackForMissingPreferredDevices(
-          modelParams.preferredBackend,
-        )) {
+        _shouldForceCpuFallbackForMissingPreferredDevices(effectiveBackend)) {
       // Honor explicit backend intent: if requested GPU backend is unavailable,
       // fall back to CPU instead of letting another GPU backend auto-select.
       preferredDevices = _createPreferredDeviceList(GpuBackend.cpu);

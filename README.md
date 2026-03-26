@@ -21,7 +21,8 @@
 - 📱 **Cross-Platform**: Android, iOS, macOS, Linux, Windows, and web.
 - ⚡ **GPU Acceleration**:
   - Apple: Metal
-  - Android/Linux/Windows: Vulkan by default, with optional target-specific modules
+  - Linux/Windows: Vulkan by default, with optional target-specific modules
+  - Android: CPU by default, with bundled Vulkan available for opt-in
   - Web: WebGPU via bridge runtime (with CPU fallback)
 - 🧭 **Embeddings API**: Generate vectors with `embed(...)` and
   `embedBatch(...)`.
@@ -213,7 +214,7 @@ Notes:
 - Configurable targets always keep `cpu` bundled as a fallback.
 - Android arm64 defaults to `cpu_profile: full` for best runtime CPU
   optimization coverage.
-- Android keeps OpenCL available for opt-in, but defaults to Vulkan.
+- Android keeps OpenCL and Vulkan available for opt-in, but `auto` now prefers CPU by default.
 - Use `cpu_profile: compact` if you prefer smaller Android arm64 package size
   over CPU-path optimization coverage.
 - If `cpu_variants` contains unknown entries, they are ignored with warnings.

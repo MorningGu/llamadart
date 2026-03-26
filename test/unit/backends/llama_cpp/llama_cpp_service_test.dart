@@ -129,6 +129,30 @@ void main() {
   });
 
   group('resolveGpuLayersForLoad', () {
+    test('prefers CPU for Android auto mode', () {
+      const params = ModelParams(
+        gpuLayers: ModelParams.maxGpuLayers,
+        preferredBackend: GpuBackend.auto,
+      );
+
+      expect(
+        LlamaCppService.resolvePreferredBackendForLoad(params, isAndroid: true),
+        GpuBackend.cpu,
+      );
+    });
+
+    test('keeps auto mode on non-Android hosts', () {
+      const params = ModelParams(
+        gpuLayers: ModelParams.maxGpuLayers,
+        preferredBackend: GpuBackend.auto,
+      );
+
+      expect(
+        LlamaCppService.resolvePreferredBackendForLoad(params),
+        GpuBackend.auto,
+      );
+    });
+
     test('forces CPU mode to zero gpu layers', () {
       const params = ModelParams(
         gpuLayers: ModelParams.maxGpuLayers,
@@ -136,6 +160,18 @@ void main() {
       );
 
       expect(LlamaCppService.resolveGpuLayersForLoad(params), 0);
+    });
+
+    test('forces Android auto mode to zero gpu layers', () {
+      const params = ModelParams(
+        gpuLayers: ModelParams.maxGpuLayers,
+        preferredBackend: GpuBackend.auto,
+      );
+
+      expect(
+        LlamaCppService.resolveGpuLayersForLoad(params, isAndroid: true),
+        0,
+      );
     });
 
     test('preserves configured gpu layers for non-CPU backends', () {
