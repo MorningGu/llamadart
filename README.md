@@ -38,7 +38,7 @@
 
 ```yaml
 dependencies:
-  llamadart: ^0.6.8
+  llamadart: ^0.6.9
 ```
 
 ### 2. Run with defaults
@@ -49,6 +49,9 @@ On first `dart run` / `flutter run`, `llamadart` will:
 3. Wire it into your app via native assets.
 
 No manual binary download or C++ build steps are required.
+
+> iOS builds require a minimum deployment target of `16.4` or newer in your
+> Xcode project / Podfile (for example `platform :ios, '16.4'`).
 
 ### 3. Optional: choose backend modules per target (non-Apple)
 

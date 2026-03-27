@@ -1,9 +1,15 @@
 ## Unreleased
 
+## 0.6.9
+
+* **iOS deployment target alignment**:
+  * Documented that iOS builds require a minimum deployment target of `16.4` or newer across the README, docs site, and example docs.
+  * Updated `example/chat_app` iOS Podfile and Runner project settings to use deployment target `16.4`.
 * **Android backend safety**:
   * Honored `ggml_backend_score` during asset-based backend fallback so unsupported Android CPU variant libraries are skipped before initialization.
   * Changed Android `auto` backend resolution to prefer CPU by default while keeping Vulkan available for explicit opt-in.
   * Clarified that changing `hooks.user_defines` requires `flutter clean && flutter pub get` before rebuilding.
+* **Compatibility note**: no public API breaking changes in `0.6.9`.
 
 ## 0.6.8
 

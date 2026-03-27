@@ -25,6 +25,9 @@ flutter pub get
 flutter run
 ```
 
+If you run this app on iOS, set the project deployment target to `16.4` or
+newer first (for example `platform :ios, '16.4'` in `ios/Podfile`).
+
 ### 1.1 Run Tests
 ```bash
 cd example/chat_app

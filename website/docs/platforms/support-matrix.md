@@ -26,6 +26,10 @@ The native-assets hook currently pins `llamadart-native` tag `b8480`
 | macOS x86_64 | `macos-x86_64` | No (fixed in hook) | Consolidated runtime: `cpu`, `metal` | Supported |
 | Web (browser) | N/A (JS bridge path) | N/A | Bridge router: `webgpu`, `cpu` fallback | Experimental |
 
+All iOS targets above require the consuming Flutter/Xcode project to use a
+minimum deployment target of `16.4` or newer (for example
+`platform :ios, '16.4'`).
+
 ## Current module availability by bundle (`b8480`)
 
 | Bundle key | Available backend modules in bundle |
