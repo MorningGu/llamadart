@@ -8545,6 +8545,24 @@ final class llama_context_params extends ffi.Struct {
   external int n_samplers;
 }
 
+final class llama_model_tensor_override extends ffi.Struct {
+  external ffi.Pointer<ffi.Char> pattern;
+
+  @ffi.UnsignedInt()
+  external int typeAsInt;
+
+  ggml_type get type => ggml_type.fromValue(typeAsInt);
+}
+
+final class llama_model_imatrix_data extends ffi.Struct {
+  external ffi.Pointer<ffi.Char> name;
+
+  external ffi.Pointer<ffi.Float> data;
+
+  @ffi.Size()
+  external int size;
+}
+
 final class llama_model_quantize_params extends ffi.Struct {
   @ffi.Int32()
   external int nthread;
@@ -8584,13 +8602,13 @@ final class llama_model_quantize_params extends ffi.Struct {
   @ffi.Bool()
   external bool dry_run;
 
-  external ffi.Pointer<ffi.Void> imatrix;
+  external ffi.Pointer<llama_model_imatrix_data> imatrix;
 
-  external ffi.Pointer<ffi.Void> kv_overrides;
+  external ffi.Pointer<llama_model_kv_override> kv_overrides;
 
-  external ffi.Pointer<ffi.Void> tensor_types;
+  external ffi.Pointer<llama_model_tensor_override> tt_overrides;
 
-  external ffi.Pointer<ffi.Void> prune_layers;
+  external ffi.Pointer<ffi.Int32> prune_layers;
 }
 
 final class llama_logit_bias extends ffi.Struct {
