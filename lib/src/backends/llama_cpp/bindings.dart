@@ -152,51 +152,6 @@ external ffi.Pointer<llama_context> llama_new_context_with_model(
 @ffi.Native<ffi.Void Function(ffi.Pointer<llama_context>)>()
 external void llama_free(ffi.Pointer<llama_context> ctx);
 
-@ffi.Native<
-  ffi.UnsignedInt Function(
-    ffi.Pointer<ffi.Char>,
-    ffi.Pointer<llama_model_params>,
-    ffi.Pointer<llama_context_params>,
-    ffi.Pointer<ffi.Float>,
-    ffi.Pointer<llama_model_tensor_buft_override>,
-    ffi.Pointer<ffi.Size>,
-    ffi.Uint32,
-    ffi.UnsignedInt,
-  )
->(symbol: 'llama_params_fit')
-external int _llama_params_fit(
-  ffi.Pointer<ffi.Char> path_model,
-  ffi.Pointer<llama_model_params> mparams,
-  ffi.Pointer<llama_context_params> cparams,
-  ffi.Pointer<ffi.Float> tensor_split,
-  ffi.Pointer<llama_model_tensor_buft_override> tensor_buft_overrides,
-  ffi.Pointer<ffi.Size> margins,
-  int n_ctx_min,
-  int log_level,
-);
-
-llama_params_fit_status llama_params_fit(
-  ffi.Pointer<ffi.Char> path_model,
-  ffi.Pointer<llama_model_params> mparams,
-  ffi.Pointer<llama_context_params> cparams,
-  ffi.Pointer<ffi.Float> tensor_split,
-  ffi.Pointer<llama_model_tensor_buft_override> tensor_buft_overrides,
-  ffi.Pointer<ffi.Size> margins,
-  int n_ctx_min,
-  ggml_log_level log_level,
-) => llama_params_fit_status.fromValue(
-  _llama_params_fit(
-    path_model,
-    mparams,
-    cparams,
-    tensor_split,
-    tensor_buft_overrides,
-    margins,
-    n_ctx_min,
-    log_level.value,
-  ),
-);
-
 @ffi.Native<ffi.Int64 Function()>()
 external int llama_time_us();
 
@@ -1697,9 +1652,6 @@ external void llama_perf_sampler_print(ffi.Pointer<llama_sampler> chain);
 
 @ffi.Native<ffi.Void Function(ffi.Pointer<llama_sampler>)>()
 external void llama_perf_sampler_reset(ffi.Pointer<llama_sampler> chain);
-
-@ffi.Native<ffi.Void Function(ffi.Pointer<llama_context>)>()
-external void llama_memory_breakdown_print(ffi.Pointer<llama_context> ctx);
 
 @ffi.Native<
   ffi.Bool Function(ffi.Pointer<ggml_tensor>, ffi.Pointer<ffi.Void>)
@@ -7162,6 +7114,32 @@ external void ggml_backend_sched_set_eval_callback(
   ffi.Pointer<ffi.Void> user_data,
 );
 
+@ffi.Native<ffi.Pointer<ffi.Char> Function(ffi.UnsignedInt)>(
+  symbol: 'ggml_backend_meta_split_axis_name',
+)
+external ffi.Pointer<ffi.Char> _ggml_backend_meta_split_axis_name(
+  int split_axis,
+);
+
+ffi.Pointer<ffi.Char> ggml_backend_meta_split_axis_name(
+  ggml_backend_meta_split_axis split_axis,
+) => _ggml_backend_meta_split_axis_name(split_axis.value);
+
+@ffi.Native<
+  ggml_backend_dev_t Function(
+    ffi.Pointer<ggml_backend_dev_t>,
+    ffi.Size,
+    ggml_backend_meta_get_split_state_t,
+    ffi.Pointer<ffi.Void>,
+  )
+>()
+external ggml_backend_dev_t ggml_backend_meta_device(
+  ffi.Pointer<ggml_backend_dev_t> devs,
+  int n_devs,
+  ggml_backend_meta_get_split_state_t get_split_state,
+  ffi.Pointer<ffi.Void> get_split_state_ud,
+);
+
 @ffi.Native<
   ggml_backend_graph_copy$1 Function(ggml_backend_t, ffi.Pointer<ggml_cgraph>)
 >()
@@ -7399,6 +7377,16 @@ external int mtmd_image_tokens_get_n_tokens(
   ffi.Pointer<mtmd_image_tokens> image_tokens,
 );
 
+@ffi.Native<ffi.Pointer<ffi.Char> Function(ffi.Pointer<mtmd_image_tokens>)>()
+external ffi.Pointer<ffi.Char> mtmd_image_tokens_get_id(
+  ffi.Pointer<mtmd_image_tokens> image_tokens,
+);
+
+@ffi.Native<llama_pos Function(ffi.Pointer<mtmd_image_tokens>)>()
+external int mtmd_image_tokens_get_n_pos(
+  ffi.Pointer<mtmd_image_tokens> image_tokens,
+);
+
 @ffi.Native<ffi.Size Function(ffi.Pointer<mtmd_image_tokens>)>()
 external int mtmd_image_tokens_get_nx(
   ffi.Pointer<mtmd_image_tokens> image_tokens,
@@ -7409,14 +7397,13 @@ external int mtmd_image_tokens_get_ny(
   ffi.Pointer<mtmd_image_tokens> image_tokens,
 );
 
-@ffi.Native<ffi.Pointer<ffi.Char> Function(ffi.Pointer<mtmd_image_tokens>)>()
-external ffi.Pointer<ffi.Char> mtmd_image_tokens_get_id(
+@ffi.Native<
+  mtmd_decoder_pos Function(ffi.Pointer<mtmd_image_tokens>, llama_pos, ffi.Size)
+>()
+external mtmd_decoder_pos mtmd_image_tokens_get_decoder_pos(
   ffi.Pointer<mtmd_image_tokens> image_tokens,
-);
-
-@ffi.Native<llama_pos Function(ffi.Pointer<mtmd_image_tokens>)>()
-external int mtmd_image_tokens_get_n_pos(
-  ffi.Pointer<mtmd_image_tokens> image_tokens,
+  int pos_0,
+  int i,
 );
 
 @ffi.Native<
@@ -7502,6 +7489,19 @@ external int mtmd_helper_get_n_tokens(ffi.Pointer<mtmd_input_chunks> chunks);
 
 @ffi.Native<llama_pos Function(ffi.Pointer<mtmd_input_chunks>)>()
 external int mtmd_helper_get_n_pos(ffi.Pointer<mtmd_input_chunks> chunks);
+
+@ffi.Native<
+  ffi.Void Function(
+    ffi.Pointer<mtmd_image_tokens>,
+    llama_pos,
+    ffi.Pointer<mtmd_decoder_pos>,
+  )
+>()
+external void mtmd_helper_image_get_decoder_pos(
+  ffi.Pointer<mtmd_image_tokens> image,
+  int pos_0,
+  ffi.Pointer<mtmd_decoder_pos> out_pos,
+);
 
 @ffi.Native<
   ffi.Int32 Function(
@@ -8856,24 +8856,8 @@ final class _IO_FILE extends ffi.Struct {
 }
 
 typedef FILE = _IO_FILE;
-
-enum llama_params_fit_status {
-  LLAMA_PARAMS_FIT_STATUS_SUCCESS(0),
-  LLAMA_PARAMS_FIT_STATUS_FAILURE(1),
-  LLAMA_PARAMS_FIT_STATUS_ERROR(2);
-
-  final int value;
-  const llama_params_fit_status(this.value);
-
-  static llama_params_fit_status fromValue(int value) => switch (value) {
-    0 => LLAMA_PARAMS_FIT_STATUS_SUCCESS,
-    1 => LLAMA_PARAMS_FIT_STATUS_FAILURE,
-    2 => LLAMA_PARAMS_FIT_STATUS_ERROR,
-    _ => throw ArgumentError(
-      'Unknown value for llama_params_fit_status: $value',
-    ),
-  };
-}
+typedef llama_state_seq_flags = ffi.Uint32;
+typedef Dartllama_state_seq_flags = int;
 
 enum ggml_log_level {
   GGML_LOG_LEVEL_NONE(0),
@@ -8897,8 +8881,6 @@ enum ggml_log_level {
   };
 }
 
-typedef llama_state_seq_flags = ffi.Uint32;
-typedef Dartllama_state_seq_flags = int;
 typedef ggml_log_callbackFunction =
     ffi.Void Function(
       ffi.UnsignedInt level,
@@ -9632,20 +9614,38 @@ final class ggml_backend_dev_props extends ffi.Struct {
   external ggml_backend_dev_caps caps;
 }
 
-typedef ggml_backend_allreduce_tensor_tFunction =
-    ffi.Bool Function(
+typedef ggml_backend_comm_init_tFunction =
+    ffi.Pointer<ffi.Void> Function(
       ffi.Pointer<ggml_backend_t> backends,
-      ffi.Pointer<ffi.Pointer<ggml_tensor>> tensors,
       ffi.Size n_backends,
     );
-typedef Dartggml_backend_allreduce_tensor_tFunction =
-    bool Function(
+typedef Dartggml_backend_comm_init_tFunction =
+    ffi.Pointer<ffi.Void> Function(
       ffi.Pointer<ggml_backend_t> backends,
-      ffi.Pointer<ffi.Pointer<ggml_tensor>> tensors,
       int n_backends,
     );
-typedef ggml_backend_allreduce_tensor_t =
-    ffi.Pointer<ffi.NativeFunction<ggml_backend_allreduce_tensor_tFunction>>;
+typedef ggml_backend_comm_init_t =
+    ffi.Pointer<ffi.NativeFunction<ggml_backend_comm_init_tFunction>>;
+typedef ggml_backend_comm_free_tFunction =
+    ffi.Void Function(ffi.Pointer<ffi.Void> comm_ctx);
+typedef Dartggml_backend_comm_free_tFunction =
+    void Function(ffi.Pointer<ffi.Void> comm_ctx);
+typedef ggml_backend_comm_free_t =
+    ffi.Pointer<ffi.NativeFunction<ggml_backend_comm_free_tFunction>>;
+typedef ggml_backend_comm_allreduce_tensor_tFunction =
+    ffi.Bool Function(
+      ffi.Pointer<ffi.Void> comm_ctx,
+      ffi.Pointer<ffi.Pointer<ggml_tensor>> tensors,
+    );
+typedef Dartggml_backend_comm_allreduce_tensor_tFunction =
+    bool Function(
+      ffi.Pointer<ffi.Void> comm_ctx,
+      ffi.Pointer<ffi.Pointer<ggml_tensor>> tensors,
+    );
+typedef ggml_backend_comm_allreduce_tensor_t =
+    ffi.Pointer<
+      ffi.NativeFunction<ggml_backend_comm_allreduce_tensor_tFunction>
+    >;
 typedef ggml_backend_split_buffer_type_tFunction =
     ggml_backend_buffer_type_t Function(
       ffi.Int main_device,
@@ -9697,6 +9697,58 @@ typedef ggml_backend_get_features_t =
 final class ggml_backend_sched extends ffi.Opaque {}
 
 typedef ggml_backend_sched_t = ffi.Pointer<ggml_backend_sched>;
+
+enum ggml_backend_meta_split_axis {
+  GGML_BACKEND_SPLIT_AXIS_0(0),
+  GGML_BACKEND_SPLIT_AXIS_1(1),
+  GGML_BACKEND_SPLIT_AXIS_2(2),
+  GGML_BACKEND_SPLIT_AXIS_3(3),
+  GGML_BACKEND_SPLIT_AXIS_MIRRORED(10),
+  GGML_BACKEND_SPLIT_AXIS_PARTIAL(11),
+  GGML_BACKEND_SPLIT_AXIS_NONE(98),
+  GGML_BACKEND_SPLIT_AXIS_UNKNOWN(99);
+
+  final int value;
+  const ggml_backend_meta_split_axis(this.value);
+
+  static ggml_backend_meta_split_axis fromValue(int value) => switch (value) {
+    0 => GGML_BACKEND_SPLIT_AXIS_0,
+    1 => GGML_BACKEND_SPLIT_AXIS_1,
+    2 => GGML_BACKEND_SPLIT_AXIS_2,
+    3 => GGML_BACKEND_SPLIT_AXIS_3,
+    10 => GGML_BACKEND_SPLIT_AXIS_MIRRORED,
+    11 => GGML_BACKEND_SPLIT_AXIS_PARTIAL,
+    98 => GGML_BACKEND_SPLIT_AXIS_NONE,
+    99 => GGML_BACKEND_SPLIT_AXIS_UNKNOWN,
+    _ => throw ArgumentError(
+      'Unknown value for ggml_backend_meta_split_axis: $value',
+    ),
+  };
+}
+
+final class ggml_backend_meta_split_state extends ffi.Struct {
+  @ffi.UnsignedInt()
+  external int axisAsInt;
+
+  ggml_backend_meta_split_axis get axis =>
+      ggml_backend_meta_split_axis.fromValue(axisAsInt);
+
+  @ffi.Array.multi([256])
+  external ffi.Array<ffi.Int64> ne;
+
+  @ffi.Uint32()
+  external int n_segments;
+}
+
+typedef ggml_backend_meta_get_split_state_tFunction =
+    ggml_backend_meta_split_state Function(
+      ffi.Pointer<ggml_tensor> tensor,
+      ffi.Pointer<ffi.Void> userdata,
+    );
+typedef ggml_backend_meta_get_split_state_t =
+    ffi.Pointer<
+      ffi.NativeFunction<ggml_backend_meta_get_split_state_tFunction>
+    >;
 
 final class ggml_backend_graph_copy$1 extends ffi.Struct {
   external ggml_backend_buffer_t buffer;
@@ -9795,6 +9847,20 @@ final class mtmd_context_params extends ffi.Struct {
   external ffi.Pointer<ffi.Void> cb_eval_user_data;
 }
 
+final class mtmd_decoder_pos extends ffi.Struct {
+  @ffi.Uint32()
+  external int t;
+
+  @ffi.Uint32()
+  external int x;
+
+  @ffi.Uint32()
+  external int y;
+
+  @ffi.Uint32()
+  external int z;
+}
+
 const int LLAMA_DEFAULT_SEED = 4294967295;
 
 const int LLAMA_TOKEN_NULL = -1;
@@ -9861,4 +9927,4 @@ const int GGML_MROPE_SECTIONS = 4;
 
 const int GGML_N_TASKS_MAX = -1;
 
-const String MTMD_DEFAULT_IMAGE_MARKER = '<__image__>';
+const int GGML_BACKEND_META_MAX_DEVICES = 16;
