@@ -7,6 +7,17 @@ For canonical full release notes, use:
 
 - [`CHANGELOG.md`](https://github.com/leehack/llamadart/blob/main/CHANGELOG.md)
 
+## 0.6.11
+
+- Synced native hook pinning and regenerated bindings through
+  `leehack/llamadart-native@b8955`.
+- Fixed Gemma 4 streaming so `<|channel>thought ... <channel|>` output is
+  emitted as thinking deltas instead of content text, including when channel
+  markers are split across streamed chunks.
+- Tracked the chat app lockfile for stable generated Flutter plugin metadata in
+  CI and release validation.
+- Compatibility note: no public API breaking changes in `0.6.11`.
+
 ## 0.6.10
 
 - Synced native hook pinning and regenerated bindings through
