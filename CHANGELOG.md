@@ -1,5 +1,16 @@
 ## Unreleased
 
+## 0.6.11
+
+* **Native runtime syncs**:
+  * Updated native hook pinning and regenerated bindings through `leehack/llamadart-native@b8955`.
+* **Gemma 4 streaming fix**:
+  * Parsed streamed `<|channel>thought ... <channel|>` blocks into thinking deltas instead of leaking Gemma 4 thought markers into content output.
+  * Added engine coverage for Gemma 4 thought-channel chunks split across native stream boundaries.
+* **Release stability**:
+  * Tracked the chat app lockfile so generated Flutter plugin metadata stays stable in CI and release validation.
+* **Compatibility note**: no public API breaking changes in `0.6.11`.
+
 ## 0.6.10
 
 * **Native runtime syncs**:

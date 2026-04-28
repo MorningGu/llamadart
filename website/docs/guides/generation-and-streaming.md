@@ -61,6 +61,11 @@ await for (final chunk in engine.create(
   messages,
   params: const GenerationParams(maxTokens: 128, topP: 0.95),
 )) {
+  final thinking = chunk.choices.first.delta.thinking;
+  if (thinking != null) {
+    print('[thinking] $thinking');
+  }
+
   final text = chunk.choices.first.delta.content;
   if (text != null) {
     print(text);
