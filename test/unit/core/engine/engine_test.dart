@@ -12,6 +12,7 @@ class MockLlamaBackend
     this.failModelLoad = false,
     this.failModelLoadFromUrl = false,
     this.failContextCreate = false,
+    this.modelMetadataResponse,
   });
 
   bool _isReady = false;
@@ -31,6 +32,7 @@ class MockLlamaBackend
   final bool failModelLoad;
   final bool failModelLoadFromUrl;
   final bool failContextCreate;
+  final Map<String, String>? modelMetadataResponse;
 
   @override
   bool get isReady => _isReady;
@@ -119,11 +121,12 @@ class MockLlamaBackend
   @override
   Future<Map<String, String>> modelMetadata(int modelHandle) async {
     modelMetadataCalls += 1;
-    return {
-      'llm.context_length': '4096',
-      'tokenizer.chat_template':
-          '{{ bos_token }}{% for message in messages %}{% if message["role"] == "user" %}{{ "user: " + message["content"] }}{% elif message["role"] == "assistant" %}{{ "assistant: " + message["content"] }}{% endif %}{% endfor %}{% if add_generation_prompt %}{{ "assistant: " }}{% endif %}',
-    };
+    return modelMetadataResponse ??
+        {
+          'llm.context_length': '4096',
+          'tokenizer.chat_template':
+              '{{ bos_token }}{% for message in messages %}{% if message["role"] == "user" %}{{ "user: " + message["content"] }}{% elif message["role"] == "assistant" %}{{ "assistant: " + message["content"] }}{% endif %}{% endfor %}{% if add_generation_prompt %}{{ "assistant: " }}{% endif %}',
+        };
   }
 
   @override
@@ -845,6 +848,43 @@ void main() {
         expect(chunks.last.choices.first.finishReason, equals('stop'));
       },
     );
+
+    test('create streams Gemma 4 thought blocks as thinking deltas', () async {
+      final gemmaBackend = MockLlamaBackend(
+        modelMetadataResponse: const {
+          'llm.context_length': '4096',
+          'tokenizer.chat_template':
+              '<|turn>user\n{{ messages[0]["content"] }}<turn|>{% if add_generation_prompt %}<|turn>model\n{% endif %}',
+        },
+      );
+      final gemmaEngine = LlamaEngine(gemmaBackend);
+      gemmaBackend.generationChunks = const [
+        '<|chan',
+        'nel>thought\npl',
+        'an first<chan',
+        'nel|>Final answer.',
+      ];
+
+      await gemmaEngine.loadModel('gemma4-test.gguf');
+
+      final chunks = await gemmaEngine.create(const [
+        LlamaChatMessage.fromText(role: LlamaChatRole.user, text: 'hi'),
+      ]).toList();
+
+      final streamedContent = chunks
+          .map((chunk) => chunk.choices.first.delta.content)
+          .whereType<String>()
+          .join();
+      final streamedThinking = chunks
+          .map((chunk) => chunk.choices.first.delta.thinking)
+          .whereType<String>()
+          .join();
+
+      expect(streamedThinking, equals('plan first'));
+      expect(streamedContent, equals('Final answer.'));
+      expect(streamedContent, isNot(contains('thought')));
+      expect(chunks.last.choices.first.finishReason, equals('stop'));
+    });
 
     test('create handles many plain chunks when tools are enabled', () async {
       backend.generationChunks = List<String>.filled(80, 'a');

@@ -34,6 +34,12 @@ class Gemma4Handler extends ChatTemplateHandler {
   ChatFormat get format => ChatFormat.gemma4;
 
   @override
+  String get thinkingStartTag => '<|channel>thought\n';
+
+  @override
+  String get thinkingEndTag => _channelEnd;
+
+  @override
   List<String> get additionalStops => const [_turnEnd, _toolCallEnd];
 
   @override
