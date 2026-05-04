@@ -16,7 +16,7 @@ import '../config/lora_config.dart';
 /// final params = ModelParams(
 ///   contextSize: 4096,
 ///   gpuLayers: 33, // Offload 33 layers to GPU
-///   logLevel: LlamaLogLevel.info,
+///   mainGpu: 1, // Use the second GPU device as the primary device
 /// );
 /// await engine.loadModel('path/to/model.gguf', modelParams: params);
 /// ```
@@ -29,6 +29,13 @@ class ModelParams {
 
   /// Preferred GPU backend for inference.
   final GpuBackend preferredBackend;
+
+  /// Primary GPU device index for model loading.
+  ///
+  /// This is passed through to llama.cpp `llama_model_params.main_gpu`.
+  /// Backend-specific device ordering is defined by llama.cpp and the active
+  /// backend. Defaults to 0 to preserve llama.cpp's default behavior.
+  final int mainGpu;
 
   /// Initial LoRA adapters to load along with the model.
   final List<LoraAdapterConfig> loras;
@@ -78,6 +85,7 @@ class ModelParams {
     this.contextSize = 4096,
     this.gpuLayers = maxGpuLayers,
     this.preferredBackend = GpuBackend.auto,
+    this.mainGpu = 0,
     this.loras = const [],
     this.chatTemplate,
     this.numberOfThreads = 0,
@@ -92,6 +100,7 @@ class ModelParams {
     int? contextSize,
     int? gpuLayers,
     GpuBackend? preferredBackend,
+    int? mainGpu,
     List<LoraAdapterConfig>? loras,
     String? chatTemplate,
     int? numberOfThreads,
@@ -104,6 +113,7 @@ class ModelParams {
       contextSize: contextSize ?? this.contextSize,
       gpuLayers: gpuLayers ?? this.gpuLayers,
       preferredBackend: preferredBackend ?? this.preferredBackend,
+      mainGpu: mainGpu ?? this.mainGpu,
       loras: loras ?? this.loras,
       chatTemplate: chatTemplate ?? this.chatTemplate,
       numberOfThreads: numberOfThreads ?? this.numberOfThreads,

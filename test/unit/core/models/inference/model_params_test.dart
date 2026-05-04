@@ -9,6 +9,7 @@ void main() {
     expect(params.contextSize, 4096);
     expect(params.gpuLayers, ModelParams.maxGpuLayers);
     expect(params.preferredBackend, GpuBackend.auto);
+    expect(params.mainGpu, 0);
     expect(params.chatTemplate, isNull);
     expect(params.numberOfThreads, 0);
     expect(params.numberOfThreadsBatch, 0);
@@ -23,6 +24,7 @@ void main() {
     final updated = params.copyWith(
       gpuLayers: 2,
       preferredBackend: GpuBackend.metal,
+      mainGpu: 1,
       batchSize: 256,
       microBatchSize: 64,
       maxParallelSequences: 8,
@@ -31,6 +33,7 @@ void main() {
     expect(updated.contextSize, 1024);
     expect(updated.gpuLayers, 2);
     expect(updated.preferredBackend, GpuBackend.metal);
+    expect(updated.mainGpu, 1);
     expect(updated.batchSize, 256);
     expect(updated.microBatchSize, 64);
     expect(updated.maxParallelSequences, 8);
@@ -41,6 +44,7 @@ void main() {
       contextSize: 3072,
       gpuLayers: 8,
       preferredBackend: GpuBackend.cuda,
+      mainGpu: 2,
       chatTemplate: 'custom-template',
       numberOfThreads: 6,
       numberOfThreadsBatch: 4,
@@ -54,6 +58,7 @@ void main() {
     expect(updated.contextSize, 3072);
     expect(updated.gpuLayers, 12);
     expect(updated.preferredBackend, GpuBackend.cuda);
+    expect(updated.mainGpu, 2);
     expect(updated.chatTemplate, 'custom-template');
     expect(updated.numberOfThreads, 6);
     expect(updated.numberOfThreadsBatch, 4);

@@ -1226,6 +1226,7 @@ class LlamaCppService {
     );
 
     mparams.n_gpu_layers = gpuLayers;
+    mparams.main_gpu = modelParams.mainGpu;
     mparams.use_mmap = true;
     if (preferredDevices != null) {
       mparams.devices = preferredDevices;

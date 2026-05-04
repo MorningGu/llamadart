@@ -19,6 +19,7 @@ await engine.loadModel(
     contextSize: 4096,
     gpuLayers: ModelParams.maxGpuLayers,
     preferredBackend: GpuBackend.vulkan,
+    mainGpu: 0,
     numberOfThreads: 0,
     numberOfThreadsBatch: 0,
     batchSize: 0,
@@ -33,6 +34,7 @@ Important fields:
 - `contextSize`: total context window.
 - `gpuLayers`: number of layers offloaded to GPU.
 - `preferredBackend`: backend preference (`auto`, `vulkan`, `metal`, etc).
+- `mainGpu`: primary GPU device index passed through to llama.cpp `main_gpu`.
 - `batchSize`: context logical batch size (`n_batch`).
 - `microBatchSize`: context micro-batch size (`n_ubatch`).
 - `maxParallelSequences`: max sequence slots (`n_seq_max`) for parallel
