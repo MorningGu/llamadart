@@ -1,5 +1,16 @@
 ## Unreleased
 
+* **Native runtime sync**:
+  * Updated native hook pinning to `leehack/llamadart-native@b9016`,
+    picking up the CUDA 12.8 Blackwell-capable native bundles.
+* **GPU device selection API**:
+  * Added `ModelParams.mainGpu` and wired it to llama.cpp
+    `llama_model_params.main_gpu`.
+  * Added `ModelParams.splitMode` and wired it to llama.cpp
+    `llama_model_params.split_mode`, enabling explicit single-GPU selection
+    with `ModelSplitMode.none`.
+* **Compatibility note**: no public API breaking changes.
+
 ## 0.6.11
 
 * **Native runtime syncs**:

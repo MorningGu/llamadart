@@ -6,7 +6,7 @@ description: Check which native and web backends are supported by llamadart and 
 This page combines platform support and backend-module configuration for
 `llamadart`.
 
-The native-assets hook currently pins `llamadart-native` tag `b8955`
+The native-assets hook currently pins `llamadart-native` tag `b9016`
 (`hook/build.dart`). Module availability below is for that pinned tag.
 
 ## Platform/architecture coverage
@@ -30,7 +30,7 @@ All iOS targets above require the consuming Flutter/Xcode project to use a
 minimum deployment target of `16.4` or newer (for example
 `platform :ios, '16.4'`).
 
-## Current module availability by bundle (`b8955`)
+## Current module availability by bundle (`b9016`)
 
 | Bundle key | Available backend modules in bundle |
 | --- | --- |
