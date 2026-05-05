@@ -1226,6 +1226,7 @@ class LlamaCppService {
     );
 
     mparams.n_gpu_layers = gpuLayers;
+    mparams.split_modeAsInt = modelParams.splitMode.llamaCppValue;
     mparams.main_gpu = modelParams.mainGpu;
     mparams.use_mmap = true;
     if (preferredDevices != null) {

@@ -2,6 +2,30 @@ import '../config/gpu_backend.dart';
 
 import '../config/lora_config.dart';
 
+/// Strategy for distributing model tensors across GPU devices.
+///
+/// Mirrors llama.cpp `llama_split_mode`. The default, [layer], preserves
+/// upstream behavior.
+enum ModelSplitMode {
+  /// Use a single GPU selected by [ModelParams.mainGpu].
+  none(0),
+
+  /// Split layers and KV cache across GPUs.
+  layer(1),
+
+  /// Split layers and KV cache across GPUs, with row-level tensor splitting
+  /// where supported by the backend.
+  row(2),
+
+  /// Use tensor parallelism where supported by the backend and model.
+  tensor(3);
+
+  /// Native llama.cpp enum value.
+  final int llamaCppValue;
+
+  const ModelSplitMode(this.llamaCppValue);
+}
+
 /// Configuration parameters for loading a Llama model.
 ///
 /// These parameters affect the initial model loading and context allocation.
@@ -16,7 +40,8 @@ import '../config/lora_config.dart';
 /// final params = ModelParams(
 ///   contextSize: 4096,
 ///   gpuLayers: 33, // Offload 33 layers to GPU
-///   mainGpu: 1, // Use the second GPU device as the primary device
+///   splitMode: ModelSplitMode.none,
+///   mainGpu: 1, // Use the second GPU device for the full model
 /// );
 /// await engine.loadModel('path/to/model.gguf', modelParams: params);
 /// ```
@@ -30,11 +55,20 @@ class ModelParams {
   /// Preferred GPU backend for inference.
   final GpuBackend preferredBackend;
 
+  /// Model tensor distribution strategy across GPU devices.
+  ///
+  /// This is passed through to llama.cpp `llama_model_params.split_mode`.
+  /// Defaults to [ModelSplitMode.layer] to preserve llama.cpp's default
+  /// behavior.
+  final ModelSplitMode splitMode;
+
   /// Primary GPU device index for model loading.
   ///
   /// This is passed through to llama.cpp `llama_model_params.main_gpu`.
   /// Backend-specific device ordering is defined by llama.cpp and the active
-  /// backend. Defaults to 0 to preserve llama.cpp's default behavior.
+  /// backend. Upstream llama.cpp uses this value to select the single GPU when
+  /// [splitMode] is [ModelSplitMode.none]. Defaults to 0 to preserve
+  /// llama.cpp's default behavior.
   final int mainGpu;
 
   /// Initial LoRA adapters to load along with the model.
@@ -85,6 +119,7 @@ class ModelParams {
     this.contextSize = 4096,
     this.gpuLayers = maxGpuLayers,
     this.preferredBackend = GpuBackend.auto,
+    this.splitMode = ModelSplitMode.layer,
     this.mainGpu = 0,
     this.loras = const [],
     this.chatTemplate,
@@ -100,6 +135,7 @@ class ModelParams {
     int? contextSize,
     int? gpuLayers,
     GpuBackend? preferredBackend,
+    ModelSplitMode? splitMode,
     int? mainGpu,
     List<LoraAdapterConfig>? loras,
     String? chatTemplate,
@@ -113,6 +149,7 @@ class ModelParams {
       contextSize: contextSize ?? this.contextSize,
       gpuLayers: gpuLayers ?? this.gpuLayers,
       preferredBackend: preferredBackend ?? this.preferredBackend,
+      splitMode: splitMode ?? this.splitMode,
       mainGpu: mainGpu ?? this.mainGpu,
       loras: loras ?? this.loras,
       chatTemplate: chatTemplate ?? this.chatTemplate,

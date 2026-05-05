@@ -228,7 +228,8 @@ Notes:
 - `example/chat_app` active backend status reflects the effective backend used for model load (for example `CPU` when GPU fallback is applied).
 - `example/chat_app` exposes `Auto` only on web; native selectors list concrete backend options.
 - CPU mode (`preferredBackend: cpu` or effective `gpuLayers == 0`) also disables context-time GPU offload so context creation stays CPU-only.
-- `ModelParams.mainGpu` passes through to llama.cpp `main_gpu` for explicit primary GPU selection on native backends.
+- `ModelParams.splitMode` passes through to llama.cpp `split_mode`; it defaults to upstream `layer` behavior.
+- `ModelParams.mainGpu` passes through to llama.cpp `main_gpu`. To select one GPU for the full model, use `splitMode: ModelSplitMode.none` with the desired `mainGpu` index.
 - `ModelParams.batchSize` (`n_batch`) and `ModelParams.microBatchSize` (`n_ubatch`) can be set independently for memory/performance tuning; defaults keep legacy behavior (`n_batch = n_ctx`, `n_ubatch = n_batch`).
 - Apple targets are intentionally non-configurable in this hook path and use consolidated native libraries.
 - The native-assets hook refreshes emitted files each build; if you change `hooks.user_defines` or are upgrading from older cached outputs, run `flutter clean && flutter pub get` before rebuilding.
