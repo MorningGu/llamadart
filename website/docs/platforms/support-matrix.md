@@ -143,6 +143,30 @@ no valid entries remain, selection falls back to `cpu_profile` (or default
 - If you change `llamadart_native_backends`, run `flutter clean` once to clear
   stale native-asset outputs.
 
+## Vulkan cooperative matrix driver crashes
+
+Some Vulkan drivers advertise cooperative matrix support but crash inside the
+Vulkan property query calls used by upstream `ggml-vulkan`. This is a driver
+failure, not a llamadart loader failure. Use upstream ggml-vulkan's opt-out
+environment variables before starting the Dart/Flutter process:
+
+```bash
+GGML_VK_DISABLE_COOPMAT=1
+GGML_VK_DISABLE_COOPMAT2=1
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:GGML_VK_DISABLE_COOPMAT = "1"
+$env:GGML_VK_DISABLE_COOPMAT2 = "1"
+flutter run -d windows
+```
+
+These variables disable the cooperative matrix optimized Vulkan paths for that
+process. They can reduce Vulkan performance, so use them only when the Vulkan
+driver crashes or reports device loss in the cooperative matrix path.
+
 ## Related docs
 
 - [Native Build Hooks](./native-build-hooks)

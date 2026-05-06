@@ -233,6 +233,11 @@ Notes:
 - `ModelParams.batchSize` (`n_batch`) and `ModelParams.microBatchSize` (`n_ubatch`) can be set independently for memory/performance tuning; defaults keep legacy behavior (`n_batch = n_ctx`, `n_ubatch = n_batch`).
 - Apple targets are intentionally non-configurable in this hook path and use consolidated native libraries.
 - The native-assets hook refreshes emitted files each build; if you change `hooks.user_defines` or are upgrading from older cached outputs, run `flutter clean && flutter pub get` before rebuilding.
+- Some Vulkan drivers can crash when probing cooperative matrix support. This
+  is a driver-side failure in the Vulkan property query path, not a llamadart
+  loader failure. Use upstream ggml-vulkan's opt-out environment variables
+  before starting the process:
+  `GGML_VK_DISABLE_COOPMAT=1` and `GGML_VK_DISABLE_COOPMAT2=1`.
 
 If you change `llamadart_native_backends`, run `flutter clean` once so stale native-asset outputs do not override new bundle selection.
 
