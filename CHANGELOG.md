@@ -1,5 +1,20 @@
 ## Unreleased
 
+* **Native runtime sync**:
+  * Updated native hook pinning to `leehack/llamadart-native@b9016`,
+    picking up the CUDA 12.8 Blackwell-capable native bundles.
+* **GPU device selection API**:
+  * Added `ModelParams.mainGpu` and wired it to llama.cpp
+    `llama_model_params.main_gpu`.
+  * Added `ModelParams.splitMode` and wired it to llama.cpp
+    `llama_model_params.split_mode`, enabling explicit single-GPU selection
+    with `ModelSplitMode.none`.
+* **Windows split-bundle loader fix**:
+  * Resolved ggml backend registry/device APIs from the loaded ggml runtime DLL
+    when the generated default FFI asset cannot see those symbols, restoring
+    explicit Vulkan device selection in Windows split bundles.
+* **Compatibility note**: no public API breaking changes.
+
 ## 0.6.11
 
 * **Native runtime syncs**:
