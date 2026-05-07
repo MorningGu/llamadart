@@ -1,4 +1,6 @@
+import 'package:llamadart/src/core/models/config/flash_attention.dart';
 import 'package:llamadart/src/core/models/config/gpu_backend.dart';
+import 'package:llamadart/src/core/models/config/kv_cache_type.dart';
 import 'package:llamadart/src/core/models/inference/model_params.dart';
 import 'package:test/test.dart';
 
@@ -17,6 +19,14 @@ void main() {
     expect(params.batchSize, 0);
     expect(params.microBatchSize, 0);
     expect(params.maxParallelSequences, 1);
+    expect(params.useMmap, isTrue);
+    expect(params.useMlock, isFalse);
+    expect(params.flashAttention, FlashAttention.auto);
+    expect(params.cacheTypeK, KvCacheType.f16);
+    expect(params.cacheTypeV, KvCacheType.f16);
+    expect(params.kvUnified, isNull);
+    expect(params.ropeFrequencyBase, isNull);
+    expect(params.ropeFrequencyScale, isNull);
     expect(ModelParams.maxGpuLayers, 999);
   });
 
@@ -42,6 +52,51 @@ void main() {
     expect(updated.maxParallelSequences, 8);
   });
 
+  test('ModelParams exposes load-time tuning knobs', () {
+    const params = ModelParams(
+      useMmap: false,
+      useMlock: true,
+      flashAttention: FlashAttention.enabled,
+      cacheTypeK: KvCacheType.q8_0,
+      cacheTypeV: KvCacheType.q8_0,
+      kvUnified: true,
+      ropeFrequencyBase: 1000000.0,
+      ropeFrequencyScale: 0.5,
+    );
+
+    expect(params.useMmap, isFalse);
+    expect(params.useMlock, isTrue);
+    expect(params.flashAttention, FlashAttention.enabled);
+    expect(params.cacheTypeK, KvCacheType.q8_0);
+    expect(params.cacheTypeV, KvCacheType.q8_0);
+    expect(params.kvUnified, isTrue);
+    expect(params.ropeFrequencyBase, 1000000.0);
+    expect(params.ropeFrequencyScale, 0.5);
+  });
+
+  test('ModelParams copyWith updates load-time tuning knobs', () {
+    const params = ModelParams();
+    final updated = params.copyWith(
+      useMmap: false,
+      useMlock: true,
+      flashAttention: FlashAttention.enabled,
+      cacheTypeK: KvCacheType.q4_0,
+      cacheTypeV: KvCacheType.q8_0,
+      kvUnified: false,
+      ropeFrequencyBase: 500000.0,
+      ropeFrequencyScale: 0.25,
+    );
+
+    expect(updated.useMmap, isFalse);
+    expect(updated.useMlock, isTrue);
+    expect(updated.flashAttention, FlashAttention.enabled);
+    expect(updated.cacheTypeK, KvCacheType.q4_0);
+    expect(updated.cacheTypeV, KvCacheType.q8_0);
+    expect(updated.kvUnified, isFalse);
+    expect(updated.ropeFrequencyBase, 500000.0);
+    expect(updated.ropeFrequencyScale, 0.25);
+  });
+
   test('ModelParams copyWith preserves unspecified fields', () {
     const original = ModelParams(
       contextSize: 3072,
@@ -55,6 +110,14 @@ void main() {
       batchSize: 512,
       microBatchSize: 128,
       maxParallelSequences: 4,
+      useMmap: false,
+      useMlock: true,
+      flashAttention: FlashAttention.enabled,
+      cacheTypeK: KvCacheType.q8_0,
+      cacheTypeV: KvCacheType.q8_0,
+      kvUnified: true,
+      ropeFrequencyBase: 1000000.0,
+      ropeFrequencyScale: 0.5,
     );
 
     final updated = original.copyWith(gpuLayers: 12);
@@ -70,5 +133,13 @@ void main() {
     expect(updated.batchSize, 512);
     expect(updated.microBatchSize, 128);
     expect(updated.maxParallelSequences, 4);
+    expect(updated.useMmap, isFalse);
+    expect(updated.useMlock, isTrue);
+    expect(updated.flashAttention, FlashAttention.enabled);
+    expect(updated.cacheTypeK, KvCacheType.q8_0);
+    expect(updated.cacheTypeV, KvCacheType.q8_0);
+    expect(updated.kvUnified, isTrue);
+    expect(updated.ropeFrequencyBase, 1000000.0);
+    expect(updated.ropeFrequencyScale, 0.5);
   });
 }

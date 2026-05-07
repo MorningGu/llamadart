@@ -1,5 +1,6 @@
+import '../config/flash_attention.dart';
 import '../config/gpu_backend.dart';
-
+import '../config/kv_cache_type.dart';
 import '../config/lora_config.dart';
 
 /// Strategy for distributing model tensors across GPU devices.
@@ -111,6 +112,34 @@ class ModelParams {
   /// Set to 1 to preserve single-sequence behavior.
   final int maxParallelSequences;
 
+  /// `llama_model_params.use_mmap`. Default `true`.
+  final bool useMmap;
+
+  /// `llama_model_params.use_mlock`. Default `false`.
+  final bool useMlock;
+
+  /// `llama_context_params.flash_attn_type`. User-explicit values override
+  /// the platform/backend heuristic.
+  final FlashAttention flashAttention;
+
+  /// `llama_context_params.type_k`. Non-F16 requires [flashAttention] enabled.
+  final KvCacheType cacheTypeK;
+
+  /// `llama_context_params.type_v`. Non-F16 requires [flashAttention] enabled.
+  final KvCacheType cacheTypeV;
+
+  /// `llama_context_params.kv_unified`. `null` keeps the current heuristic
+  /// (auto-enabled when [maxParallelSequences] > 1).
+  final bool? kvUnified;
+
+  /// `llama_context_params.rope_freq_base`. `null` keeps the model's
+  /// trained value.
+  final double? ropeFrequencyBase;
+
+  /// `llama_context_params.rope_freq_scale`. `null` keeps the model's
+  /// trained value.
+  final double? ropeFrequencyScale;
+
   /// Maximum number of GPU layers to safely offload all layers.
   static const int maxGpuLayers = 999;
 
@@ -128,6 +157,14 @@ class ModelParams {
     this.batchSize = 0,
     this.microBatchSize = 0,
     this.maxParallelSequences = 1,
+    this.useMmap = true,
+    this.useMlock = false,
+    this.flashAttention = FlashAttention.auto,
+    this.cacheTypeK = KvCacheType.f16,
+    this.cacheTypeV = KvCacheType.f16,
+    this.kvUnified,
+    this.ropeFrequencyBase,
+    this.ropeFrequencyScale,
   });
 
   /// Creates a copy of this [ModelParams] with updated fields.
@@ -144,6 +181,14 @@ class ModelParams {
     int? batchSize,
     int? microBatchSize,
     int? maxParallelSequences,
+    bool? useMmap,
+    bool? useMlock,
+    FlashAttention? flashAttention,
+    KvCacheType? cacheTypeK,
+    KvCacheType? cacheTypeV,
+    bool? kvUnified,
+    double? ropeFrequencyBase,
+    double? ropeFrequencyScale,
   }) {
     return ModelParams(
       contextSize: contextSize ?? this.contextSize,
@@ -158,6 +203,14 @@ class ModelParams {
       batchSize: batchSize ?? this.batchSize,
       microBatchSize: microBatchSize ?? this.microBatchSize,
       maxParallelSequences: maxParallelSequences ?? this.maxParallelSequences,
+      useMmap: useMmap ?? this.useMmap,
+      useMlock: useMlock ?? this.useMlock,
+      flashAttention: flashAttention ?? this.flashAttention,
+      cacheTypeK: cacheTypeK ?? this.cacheTypeK,
+      cacheTypeV: cacheTypeV ?? this.cacheTypeV,
+      kvUnified: kvUnified ?? this.kvUnified,
+      ropeFrequencyBase: ropeFrequencyBase ?? this.ropeFrequencyBase,
+      ropeFrequencyScale: ropeFrequencyScale ?? this.ropeFrequencyScale,
     );
   }
 }

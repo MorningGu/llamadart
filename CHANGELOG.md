@@ -3,6 +3,31 @@
 * **Native runtime sync**:
   * Updated native hook pinning to `leehack/llamadart-native@b9016`,
     picking up the CUDA 12.8 Blackwell-capable native bundles.
+* **Load-time tuning knobs**:
+  * Added `ModelParams.useMmap` (default `true`) and
+    `ModelParams.useMlock` (default `false`), wired to
+    `llama_model_params.use_mmap` / `use_mlock`. Lets callers turn off mmap
+    for platforms where memory-mapped weights hurt throughput, or pin
+    weights in RAM to avoid first-token paging spikes.
+  * Added `ModelParams.flashAttention` with the `FlashAttention.{auto,
+    enabled, disabled}` enum, wired to
+    `llama_context_params.flash_attn_type`. Explicit settings win over the
+    existing automatic Android/Vulkan heuristics; `auto` preserves prior
+    behavior.
+  * Added `ModelParams.cacheTypeK` and `ModelParams.cacheTypeV` with the
+    `KvCacheType.{f16, q8_0, q4_0}` enum, wired to
+    `llama_context_params.type_k` / `type_v`. Enables KV-cache
+    quantization (Q8_0 ≈ halves KV memory; Q4_0 ≈ quarters it). When the
+    user requests a non-F16 KV type with `flashAttention: auto`, the
+    service auto-promotes flash attention to enabled — llama.cpp requires
+    it for KV quantization.
+  * Added `ModelParams.kvUnified` (nullable) for explicit override of
+    `llama_context_params.kv_unified`. `null` keeps the existing
+    auto-enable-when-multi-sequence behavior.
+  * Added `ModelParams.ropeFrequencyBase` and
+    `ModelParams.ropeFrequencyScale` (both nullable) for
+    context-extension overrides on `llama_context_params.rope_freq_base` /
+    `rope_freq_scale`. `null` keeps the model's trained values.
 * **GPU device selection API**:
   * Added `ModelParams.mainGpu` and wired it to llama.cpp
     `llama_model_params.main_gpu`.
