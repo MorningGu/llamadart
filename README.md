@@ -215,6 +215,11 @@ Notes:
 
 - Module availability depends on the pinned native release bundle and may change when the native tag updates.
 - Configurable targets always keep `cpu` bundled as a fallback.
+- Backend-owned runtime dependencies follow the selected backend module. For
+  example, CUDA runtime DLLs (`cudart64_*`, `cublas64_*`, `cublaslt64_*`) are
+  bundled only when `cuda` is selected, and OpenBLAS runtime libraries are
+  bundled only when `blas` is selected. Unknown runtime libraries are kept for
+  compatibility with future native bundle layouts.
 - Android arm64 defaults to `cpu_profile: full` for best runtime CPU
   optimization coverage.
 - Android keeps OpenCL and Vulkan available for opt-in, but `auto` now prefers CPU by default.
