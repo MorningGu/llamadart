@@ -2526,6 +2526,7 @@ class LlamaCppService {
       }
     }
 
+    params.validate();
     final resolvedFlashAttn = applyContextParams(ctxParams, params);
     if (resolvedFlashAttn != params.flashAttention) {
       LlamaLogger.instance.debug(

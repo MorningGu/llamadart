@@ -6,7 +6,7 @@ import 'package:test/test.dart';
 
 void main() {
   test('ModelParams defaults preserve legacy context batching behavior', () {
-    final params = ModelParams();
+    const params = ModelParams();
 
     expect(params.contextSize, 4096);
     expect(params.gpuLayers, ModelParams.maxGpuLayers);
@@ -31,7 +31,7 @@ void main() {
   });
 
   test('ModelParams copyWith updates selected fields', () {
-    final params = ModelParams(contextSize: 1024);
+    const params = ModelParams(contextSize: 1024);
     final updated = params.copyWith(
       gpuLayers: 2,
       preferredBackend: GpuBackend.metal,
@@ -53,7 +53,7 @@ void main() {
   });
 
   test('ModelParams exposes load-time tuning knobs', () {
-    final params = ModelParams(
+    const params = ModelParams(
       useMmap: false,
       useMlock: true,
       flashAttention: FlashAttention.enabled,
@@ -75,7 +75,7 @@ void main() {
   });
 
   test('ModelParams copyWith updates load-time tuning knobs', () {
-    final params = ModelParams();
+    const params = ModelParams();
     final updated = params.copyWith(
       useMmap: false,
       useMlock: true,
@@ -98,7 +98,7 @@ void main() {
   });
 
   test('ModelParams copyWith preserves unspecified fields', () {
-    final original = ModelParams(
+    const original = ModelParams(
       contextSize: 3072,
       gpuLayers: 8,
       preferredBackend: GpuBackend.cuda,
@@ -143,64 +143,49 @@ void main() {
     expect(updated.ropeFrequencyScale, 0.5);
   });
 
-  group('non-F16 KV requires flash attention', () {
+  group('validate(): non-F16 KV requires flash attention', () {
     test('q8_0 K + flashAttention disabled throws ArgumentError', () {
-      expect(
-        () => ModelParams(
-          cacheTypeK: KvCacheType.q8_0,
-          flashAttention: FlashAttention.disabled,
-        ),
-        throwsArgumentError,
+      const p = ModelParams(
+        cacheTypeK: KvCacheType.q8_0,
+        flashAttention: FlashAttention.disabled,
       );
+      expect(p.validate, throwsArgumentError);
     });
 
     test('q4_0 V + flashAttention disabled throws ArgumentError', () {
-      expect(
-        () => ModelParams(
-          cacheTypeV: KvCacheType.q4_0,
-          flashAttention: FlashAttention.disabled,
-        ),
-        throwsArgumentError,
+      const p = ModelParams(
+        cacheTypeV: KvCacheType.q4_0,
+        flashAttention: FlashAttention.disabled,
       );
+      expect(p.validate, throwsArgumentError);
     });
 
-    test('q8_0 K/V + flashAttention auto is allowed (auto-promote handles it)',
-        () {
-      // The service-side auto-promote turns this into FA=enabled at load.
-      // Construction is fine.
-      expect(
-        () => ModelParams(
-          cacheTypeK: KvCacheType.q8_0,
-          cacheTypeV: KvCacheType.q8_0,
-          flashAttention: FlashAttention.auto,
-        ),
-        returnsNormally,
+    test('q8_0 K/V + flashAttention auto is allowed', () {
+      const p = ModelParams(
+        cacheTypeK: KvCacheType.q8_0,
+        cacheTypeV: KvCacheType.q8_0,
+        flashAttention: FlashAttention.auto,
       );
+      expect(p.validate, returnsNormally);
     });
 
     test('q8_0 K/V + flashAttention enabled is allowed', () {
-      expect(
-        () => ModelParams(
-          cacheTypeK: KvCacheType.q8_0,
-          cacheTypeV: KvCacheType.q8_0,
-          flashAttention: FlashAttention.enabled,
-        ),
-        returnsNormally,
+      const p = ModelParams(
+        cacheTypeK: KvCacheType.q8_0,
+        cacheTypeV: KvCacheType.q8_0,
+        flashAttention: FlashAttention.enabled,
       );
+      expect(p.validate, returnsNormally);
     });
 
     test('F16 K/V + flashAttention disabled is allowed', () {
-      expect(
-        () => ModelParams(
-          flashAttention: FlashAttention.disabled,
-        ),
-        returnsNormally,
-      );
+      const p = ModelParams(flashAttention: FlashAttention.disabled);
+      expect(p.validate, returnsNormally);
     });
   });
 
   group('copyWith can clear nullable fields back to null', () {
-    final populated = ModelParams(
+    const populated = ModelParams(
       chatTemplate: 'custom-template',
       kvUnified: true,
       ropeFrequencyBase: 1000000.0,

@@ -143,8 +143,9 @@ class ModelParams {
   /// Maximum number of GPU layers to safely offload all layers.
   static const int maxGpuLayers = 999;
 
-  /// Creates configuration for the model.
-  ModelParams({
+  /// Creates configuration for the model. Use [validate] to check for
+  /// llama.cpp-incompatible combinations before passing to a load call.
+  const ModelParams({
     this.contextSize = 4096,
     this.gpuLayers = maxGpuLayers,
     this.preferredBackend = GpuBackend.auto,
@@ -165,10 +166,15 @@ class ModelParams {
     this.kvUnified,
     this.ropeFrequencyBase,
     this.ropeFrequencyScale,
-  }) {
-    // llama.cpp rejects non-F16 KV cache types unless flash attention is on.
-    // Validate here so callers get an early Dart-side error instead of a
-    // cryptic native runtime failure.
+  });
+
+  /// Validates the parameter combination. Throws [ArgumentError] when the
+  /// combination is incompatible with llama.cpp (currently: non-F16 KV
+  /// cache requires flashAttention != disabled). Called automatically by
+  /// `LlamaCppService.loadModel` before the native call so callers don't
+  /// have to remember it; exposed publicly so callers who construct
+  /// `ModelParams` defensively can validate up-front.
+  void validate() {
     if ((cacheTypeK != KvCacheType.f16 || cacheTypeV != KvCacheType.f16) &&
         flashAttention == FlashAttention.disabled) {
       throw ArgumentError(
