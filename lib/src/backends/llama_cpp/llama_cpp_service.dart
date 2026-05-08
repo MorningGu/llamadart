@@ -9,9 +9,7 @@ import 'package:path/path.dart' as path;
 
 import '../../core/llama_logger.dart';
 import '../../core/models/chat/content_part.dart';
-import '../../core/models/config/flash_attention.dart';
 import '../../core/models/config/gpu_backend.dart';
-import '../../core/models/config/kv_cache_type.dart';
 import '../../core/models/config/log_level.dart';
 import '../../core/models/inference/generation_params.dart';
 import '../../core/models/inference/model_params.dart';
@@ -1271,8 +1269,7 @@ class LlamaCppService {
     mparams.n_gpu_layers = gpuLayers;
     mparams.split_modeAsInt = modelParams.splitMode.llamaCppValue;
     mparams.main_gpu = modelParams.mainGpu;
-    mparams.use_mmap = modelParams.useMmap;
-    mparams.use_mlock = modelParams.useMlock;
+    applyModelParams(mparams, modelParams);
     if (preferredDevices != null) {
       mparams.devices = preferredDevices;
     }
@@ -2529,39 +2526,12 @@ class LlamaCppService {
       }
     }
 
-    final resolvedFlashAttn = resolveFlashAttention(
-      requested: params.flashAttention,
-      cacheTypeK: params.cacheTypeK,
-      cacheTypeV: params.cacheTypeV,
-    );
+    final resolvedFlashAttn = applyContextParams(ctxParams, params);
     if (resolvedFlashAttn != params.flashAttention) {
       LlamaLogger.instance.debug(
         'llama_cpp_service: promoting flash_attn=enabled for non-F16 KV '
         '(k=${params.cacheTypeK}, v=${params.cacheTypeV})',
       );
-    }
-    switch (resolvedFlashAttn) {
-      case FlashAttention.auto:
-        break;
-      case FlashAttention.enabled:
-        ctxParams.flash_attn_typeAsInt =
-            llama_flash_attn_type.LLAMA_FLASH_ATTN_TYPE_ENABLED.value;
-        break;
-      case FlashAttention.disabled:
-        ctxParams.flash_attn_typeAsInt =
-            llama_flash_attn_type.LLAMA_FLASH_ATTN_TYPE_DISABLED.value;
-        break;
-    }
-    ctxParams.type_kAsInt = ggmlTypeFor(params.cacheTypeK).value;
-    ctxParams.type_vAsInt = ggmlTypeFor(params.cacheTypeV).value;
-    if (params.kvUnified != null) {
-      ctxParams.kv_unified = params.kvUnified!;
-    }
-    if (params.ropeFrequencyBase != null) {
-      ctxParams.rope_freq_base = params.ropeFrequencyBase!;
-    }
-    if (params.ropeFrequencyScale != null) {
-      ctxParams.rope_freq_scale = params.ropeFrequencyScale!;
     }
 
     final ctxPtr = llama_init_from_model(model.pointer, ctxParams);
