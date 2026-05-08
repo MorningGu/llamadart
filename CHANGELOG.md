@@ -3,6 +3,9 @@
 * **Native runtime sync**:
   * Updated native hook pinning to `leehack/llamadart-native@b9016`,
     picking up the CUDA 12.8 Blackwell-capable native bundles.
+  * Updated default web bridge asset pinning to
+    `leehack/llama-web-bridge-assets@v0.1.11` (llama.cpp `b9016`) so
+    native and web runtimes track the same upstream revision.
 * **Load-time tuning knobs**:
   * Added `ModelParams.useMmap` (default `true`) and
     `ModelParams.useMlock` (default `false`), wired to

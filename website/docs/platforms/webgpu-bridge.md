@@ -21,7 +21,7 @@ development validation, and CDN-first loading for normal hosted deployments:
 Fetch pinned local assets with:
 
 ```bash
-WEBGPU_BRIDGE_ASSETS_TAG=v0.1.10 ./scripts/fetch_webgpu_bridge_assets.sh
+WEBGPU_BRIDGE_ASSETS_TAG=v0.1.11 ./scripts/fetch_webgpu_bridge_assets.sh
 ```
 
 ## Compatibility and safeguards
@@ -45,7 +45,7 @@ You can override bridge asset source/version before loader startup:
 ```html
 <script>
   window.__llamadartBridgeAssetsRepo = 'leehack/llama-web-bridge-assets';
-  window.__llamadartBridgeAssetsTag = 'v0.1.10';
+  window.__llamadartBridgeAssetsTag = 'v0.1.11';
   // Optional knobs:
   // window.__llamadartBridgeEnableMem64 = false;
   // window.__llamadartBridgeAllowAutoRemoteFetchBackend = false;

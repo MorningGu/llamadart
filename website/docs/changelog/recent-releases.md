@@ -9,6 +9,9 @@ For canonical full release notes, use:
 
 ## Unreleased
 
+- Synced default WebGPU bridge asset pinning to
+  `leehack/llama-web-bridge-assets@v0.1.11` (llama.cpp `b9016`) to match the
+  native runtime pin.
 - Filtered backend-owned runtime dependencies during native asset bundling so
   CUDA runtime DLLs and OpenBLAS runtime libraries are emitted only when their
   owning backend module is selected, while unknown runtime libraries stay
