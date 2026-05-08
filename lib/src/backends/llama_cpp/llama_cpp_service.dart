@@ -15,6 +15,7 @@ import '../../core/models/config/kv_cache_type.dart';
 import '../../core/models/config/log_level.dart';
 import '../../core/models/inference/generation_params.dart';
 import '../../core/models/inference/model_params.dart';
+import 'load_param_helpers.dart';
 import 'bindings.dart';
 
 typedef _GgmlBackendLoadNative = ggml_backend_reg_t Function(Pointer<Char>);
@@ -390,17 +391,6 @@ class LlamaCppService {
     final normalized = path.basename(modelPath).toLowerCase();
     return normalized.contains('qwen3.5-0.8b') ||
         normalized.contains('qwen_qwen3.5-0.8b');
-  }
-
-  static ggml_type _ggmlTypeFor(KvCacheType type) {
-    switch (type) {
-      case KvCacheType.f16:
-        return ggml_type.GGML_TYPE_F16;
-      case KvCacheType.q8_0:
-        return ggml_type.GGML_TYPE_Q8_0;
-      case KvCacheType.q4_0:
-        return ggml_type.GGML_TYPE_Q4_0;
-    }
   }
 
   // --- Core Methods ---
@@ -2539,23 +2529,19 @@ class LlamaCppService {
       }
     }
 
-    // User-explicit overrides win over the heuristics above; `auto`/null
-    // defaults are no-ops so existing behavior is preserved.
-    final wantsKvQuantization =
-        params.cacheTypeK != KvCacheType.f16 ||
-        params.cacheTypeV != KvCacheType.f16;
-    var resolvedFlashAttn = params.flashAttention;
-    if (resolvedFlashAttn == FlashAttention.auto && wantsKvQuantization) {
-      // llama.cpp refuses non-F16 KV cache without flash attention.
+    final resolvedFlashAttn = resolveFlashAttention(
+      requested: params.flashAttention,
+      cacheTypeK: params.cacheTypeK,
+      cacheTypeV: params.cacheTypeV,
+    );
+    if (resolvedFlashAttn != params.flashAttention) {
       LlamaLogger.instance.debug(
         'llama_cpp_service: promoting flash_attn=enabled for non-F16 KV '
         '(k=${params.cacheTypeK}, v=${params.cacheTypeV})',
       );
-      resolvedFlashAttn = FlashAttention.enabled;
     }
     switch (resolvedFlashAttn) {
       case FlashAttention.auto:
-        // Leave whatever the heuristic above (or llama.cpp default) chose.
         break;
       case FlashAttention.enabled:
         ctxParams.flash_attn_typeAsInt =
@@ -2566,8 +2552,8 @@ class LlamaCppService {
             llama_flash_attn_type.LLAMA_FLASH_ATTN_TYPE_DISABLED.value;
         break;
     }
-    ctxParams.type_kAsInt = _ggmlTypeFor(params.cacheTypeK).value;
-    ctxParams.type_vAsInt = _ggmlTypeFor(params.cacheTypeV).value;
+    ctxParams.type_kAsInt = ggmlTypeFor(params.cacheTypeK).value;
+    ctxParams.type_vAsInt = ggmlTypeFor(params.cacheTypeV).value;
     if (params.kvUnified != null) {
       ctxParams.kv_unified = params.kvUnified!;
     }
