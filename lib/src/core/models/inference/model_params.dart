@@ -1,5 +1,6 @@
+import '../config/flash_attention.dart';
 import '../config/gpu_backend.dart';
-
+import '../config/kv_cache_type.dart';
 import '../config/lora_config.dart';
 
 /// Strategy for distributing model tensors across GPU devices.
@@ -111,10 +112,39 @@ class ModelParams {
   /// Set to 1 to preserve single-sequence behavior.
   final int maxParallelSequences;
 
+  /// `llama_model_params.use_mmap`. Default `true`.
+  final bool useMmap;
+
+  /// `llama_model_params.use_mlock`. Default `false`.
+  final bool useMlock;
+
+  /// `llama_context_params.flash_attn_type`. User-explicit values override
+  /// the platform/backend heuristic.
+  final FlashAttention flashAttention;
+
+  /// `llama_context_params.type_k`. Non-F16 requires [flashAttention] enabled.
+  final KvCacheType cacheTypeK;
+
+  /// `llama_context_params.type_v`. Non-F16 requires [flashAttention] enabled.
+  final KvCacheType cacheTypeV;
+
+  /// `llama_context_params.kv_unified`. `null` keeps the current heuristic
+  /// (auto-enabled when [maxParallelSequences] > 1).
+  final bool? kvUnified;
+
+  /// `llama_context_params.rope_freq_base`. `null` keeps the model's
+  /// trained value.
+  final double? ropeFrequencyBase;
+
+  /// `llama_context_params.rope_freq_scale`. `null` keeps the model's
+  /// trained value.
+  final double? ropeFrequencyScale;
+
   /// Maximum number of GPU layers to safely offload all layers.
   static const int maxGpuLayers = 999;
 
-  /// Creates configuration for the model.
+  /// Creates configuration for the model. Use [validate] to check for
+  /// llama.cpp-incompatible combinations before passing to a load call.
   const ModelParams({
     this.contextSize = 4096,
     this.gpuLayers = maxGpuLayers,
@@ -128,9 +158,40 @@ class ModelParams {
     this.batchSize = 0,
     this.microBatchSize = 0,
     this.maxParallelSequences = 1,
+    this.useMmap = true,
+    this.useMlock = false,
+    this.flashAttention = FlashAttention.auto,
+    this.cacheTypeK = KvCacheType.f16,
+    this.cacheTypeV = KvCacheType.f16,
+    this.kvUnified,
+    this.ropeFrequencyBase,
+    this.ropeFrequencyScale,
   });
 
+  /// Validates the parameter combination. Throws [ArgumentError] when the
+  /// combination is incompatible with llama.cpp (currently: non-F16 KV
+  /// cache requires flashAttention != disabled). Called automatically by
+  /// `LlamaCppService.loadModel` before the native call so callers don't
+  /// have to remember it; exposed publicly so callers who construct
+  /// `ModelParams` defensively can validate up-front.
+  void validate() {
+    if ((cacheTypeK != KvCacheType.f16 || cacheTypeV != KvCacheType.f16) &&
+        flashAttention == FlashAttention.disabled) {
+      throw ArgumentError(
+        'Non-F16 KV cache (cacheTypeK=$cacheTypeK, cacheTypeV=$cacheTypeV) '
+        'requires flashAttention != disabled. Either set flashAttention to '
+        'auto/enabled or use KvCacheType.f16 for both.',
+      );
+    }
+  }
+
   /// Creates a copy of this [ModelParams] with updated fields.
+  ///
+  /// Nullable fields ([chatTemplate], [kvUnified], [ropeFrequencyBase],
+  /// [ropeFrequencyScale]) use a sentinel pattern so callers can
+  /// **explicitly clear them back to null** by passing the corresponding
+  /// `clear*: true` flag. Without the sentinel, `null` would be
+  /// indistinguishable from "argument omitted, keep current value".
   ModelParams copyWith({
     int? contextSize,
     int? gpuLayers,
@@ -139,11 +200,23 @@ class ModelParams {
     int? mainGpu,
     List<LoraAdapterConfig>? loras,
     String? chatTemplate,
+    bool clearChatTemplate = false,
     int? numberOfThreads,
     int? numberOfThreadsBatch,
     int? batchSize,
     int? microBatchSize,
     int? maxParallelSequences,
+    bool? useMmap,
+    bool? useMlock,
+    FlashAttention? flashAttention,
+    KvCacheType? cacheTypeK,
+    KvCacheType? cacheTypeV,
+    bool? kvUnified,
+    bool clearKvUnified = false,
+    double? ropeFrequencyBase,
+    bool clearRopeFrequencyBase = false,
+    double? ropeFrequencyScale,
+    bool clearRopeFrequencyScale = false,
   }) {
     return ModelParams(
       contextSize: contextSize ?? this.contextSize,
@@ -152,12 +225,26 @@ class ModelParams {
       splitMode: splitMode ?? this.splitMode,
       mainGpu: mainGpu ?? this.mainGpu,
       loras: loras ?? this.loras,
-      chatTemplate: chatTemplate ?? this.chatTemplate,
+      chatTemplate: clearChatTemplate
+          ? null
+          : (chatTemplate ?? this.chatTemplate),
       numberOfThreads: numberOfThreads ?? this.numberOfThreads,
       numberOfThreadsBatch: numberOfThreadsBatch ?? this.numberOfThreadsBatch,
       batchSize: batchSize ?? this.batchSize,
       microBatchSize: microBatchSize ?? this.microBatchSize,
       maxParallelSequences: maxParallelSequences ?? this.maxParallelSequences,
+      useMmap: useMmap ?? this.useMmap,
+      useMlock: useMlock ?? this.useMlock,
+      flashAttention: flashAttention ?? this.flashAttention,
+      cacheTypeK: cacheTypeK ?? this.cacheTypeK,
+      cacheTypeV: cacheTypeV ?? this.cacheTypeV,
+      kvUnified: clearKvUnified ? null : (kvUnified ?? this.kvUnified),
+      ropeFrequencyBase: clearRopeFrequencyBase
+          ? null
+          : (ropeFrequencyBase ?? this.ropeFrequencyBase),
+      ropeFrequencyScale: clearRopeFrequencyScale
+          ? null
+          : (ropeFrequencyScale ?? this.ropeFrequencyScale),
     );
   }
 }

@@ -7,11 +7,13 @@ import 'dart:math' as math;
 import 'package:ffi/ffi.dart';
 import 'package:path/path.dart' as path;
 
+import '../../core/llama_logger.dart';
 import '../../core/models/chat/content_part.dart';
 import '../../core/models/config/gpu_backend.dart';
 import '../../core/models/config/log_level.dart';
 import '../../core/models/inference/generation_params.dart';
 import '../../core/models/inference/model_params.dart';
+import 'load_param_helpers.dart';
 import 'bindings.dart';
 
 typedef _GgmlBackendLoadNative = ggml_backend_reg_t Function(Pointer<Char>);
@@ -1267,7 +1269,7 @@ class LlamaCppService {
     mparams.n_gpu_layers = gpuLayers;
     mparams.split_modeAsInt = modelParams.splitMode.llamaCppValue;
     mparams.main_gpu = modelParams.mainGpu;
-    mparams.use_mmap = true;
+    applyModelParams(mparams, modelParams);
     if (preferredDevices != null) {
       mparams.devices = preferredDevices;
     }
@@ -2522,6 +2524,15 @@ class LlamaCppService {
         ctxParams.flash_attn_typeAsInt =
             llama_flash_attn_type.LLAMA_FLASH_ATTN_TYPE_DISABLED.value;
       }
+    }
+
+    params.validate();
+    final resolvedFlashAttn = applyContextParams(ctxParams, params);
+    if (resolvedFlashAttn != params.flashAttention) {
+      LlamaLogger.instance.debug(
+        'llama_cpp_service: promoting flash_attn=enabled for non-F16 KV '
+        '(k=${params.cacheTypeK}, v=${params.cacheTypeV})',
+      );
     }
 
     final ctxPtr = llama_init_from_model(model.pointer, ctxParams);
