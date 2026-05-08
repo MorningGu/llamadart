@@ -38,6 +38,12 @@
   * Resolved ggml backend registry/device APIs from the loaded ggml runtime DLL
     when the generated default FFI asset cannot see those symbols, restoring
     explicit Vulkan device selection in Windows split bundles.
+* **Native packaging size fix**:
+  * Filtered backend-owned runtime dependencies during native asset bundling so
+    CUDA runtime DLLs and OpenBLAS runtime libraries are emitted only when their
+    owning backend module is selected.
+  * Kept unknown non-core runtime libraries bundled for compatibility with
+    future native bundle layouts.
 * **Compatibility note**: no public API breaking changes.
 
 ## 0.6.11

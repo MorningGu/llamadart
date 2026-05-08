@@ -7,6 +7,13 @@ For canonical full release notes, use:
 
 - [`CHANGELOG.md`](https://github.com/leehack/llamadart/blob/main/CHANGELOG.md)
 
+## Unreleased
+
+- Filtered backend-owned runtime dependencies during native asset bundling so
+  CUDA runtime DLLs and OpenBLAS runtime libraries are emitted only when their
+  owning backend module is selected, while unknown runtime libraries stay
+  bundled for forward compatibility.
+
 ## 0.6.11
 
 - Synced native hook pinning and regenerated bindings through

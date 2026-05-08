@@ -134,6 +134,11 @@ no valid entries remain, selection falls back to `cpu_profile` (or default
   back to defaults.
 - If defaults are also unavailable, all available modules in that bundle are
   used as fallback.
+- Backend-owned runtime dependencies follow the selected backend module. CUDA
+  runtime DLLs (`cudart64_*`, `cublas64_*`, `cublaslt64_*`) are bundled only
+  when `cuda` is selected, and OpenBLAS runtime libraries are bundled only when
+  `blas` is selected. Unknown runtime libraries are kept for compatibility with
+  future native bundle layouts.
 - Apple targets (`ios-*`, `macos-*`) support `cpu` + `metal`, but ignore
   per-backend module config in this hook path because runtime libraries are
   consolidated.
