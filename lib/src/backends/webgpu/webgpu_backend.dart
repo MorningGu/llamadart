@@ -8,9 +8,8 @@ import 'dart:typed_data';
 import 'package:web/web.dart';
 
 import '../../core/models/chat/content_part.dart';
-import '../../core/models/config/flash_attention.dart';
 import '../../core/models/config/gpu_backend.dart';
-import '../../core/models/config/kv_cache_type.dart';
+import '../../core/models/config/llama_cpp_param_values.dart';
 import '../../core/models/config/log_level.dart';
 import '../../core/models/inference/generation_params.dart';
 import '../../core/models/inference/model_params.dart';
@@ -618,27 +617,13 @@ class WebGpuLlamaBackend
   }
 
   int _webGpuFlashAttentionValue(ModelParams params) {
-    final wantsQuantizedKvCache =
-        params.cacheTypeK != KvCacheType.f16 ||
-        params.cacheTypeV != KvCacheType.f16;
-    final resolved =
-        params.flashAttention == FlashAttention.auto && wantsQuantizedKvCache
-        ? FlashAttention.enabled
-        : params.flashAttention;
-
-    return switch (resolved) {
-      FlashAttention.auto => -1,
-      FlashAttention.enabled => 1,
-      FlashAttention.disabled => 0,
-    };
-  }
-
-  int _webGpuKvCacheTypeValue(KvCacheType type) {
-    return switch (type) {
-      KvCacheType.f16 => 1,
-      KvCacheType.q4_0 => 2,
-      KvCacheType.q8_0 => 8,
-    };
+    return llamaFlashAttentionTypeValueFor(
+      resolveFlashAttention(
+        requested: params.flashAttention,
+        cacheTypeK: params.cacheTypeK,
+        cacheTypeV: params.cacheTypeV,
+      ),
+    );
   }
 
   bool? _webGpuKvUnifiedValue(ModelParams params) {
@@ -964,8 +949,8 @@ class WebGpuLlamaBackend
             nGpuLayers: attempt.gpuLayers,
             nSeqMax: math.max(1, params.maxParallelSequences),
             flashAttention: _webGpuFlashAttentionValue(params),
-            cacheTypeK: _webGpuKvCacheTypeValue(params.cacheTypeK),
-            cacheTypeV: _webGpuKvCacheTypeValue(params.cacheTypeV),
+            cacheTypeK: ggmlTypeValueFor(params.cacheTypeK),
+            cacheTypeV: ggmlTypeValueFor(params.cacheTypeV),
             kvUnified: _webGpuKvUnifiedValue(params),
             ropeFrequencyBase: params.ropeFrequencyBase,
             ropeFrequencyScale: params.ropeFrequencyScale,
